@@ -182,6 +182,51 @@ svg.lucide {
   color: var(--muted);
 }
 
+.account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.account-chip:hover {
+  background: var(--bg);
+}
+
+.account-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.account-chip svg.lucide {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+/* While a call is in flight the panel has already accepted the click. */
+.account-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* A nickname is up to 30 characters and the top bar is one line. */
+.account-chip-name {
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .theme-toggle {
   display: flex;
   gap: 2px;
@@ -1368,6 +1413,131 @@ select:focus-visible {
 #gameover-icon-win { background: var(--accent-tint); color: var(--accent-strong); }
 #gameover-icon-loss { background: var(--danger-tint); color: var(--danger); }
 #gameover-icon-draw { background: var(--bg); border: 1px solid var(--border); color: var(--muted); }
+
+/* ------------------------------------------------------------------ */
+/* Account                                                             */
+/* ------------------------------------------------------------------ */
+
+/* Sidebar card for a signed-in player whose email is not confirmed yet. */
+.verify-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.verify-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.verify-mail {
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-all;
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+.account-dialog {
+  text-align: left;
+}
+
+.account-dialog .dialog-title {
+  text-align: center;
+}
+
+/* Two panes that hold the same kind of thing, so the switch is two buttons
+   beside each other rather than two buttons of different weight. */
+.account-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 16px 0 4px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.account-tabs button {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.account-tabs button:hover {
+  color: var(--text);
+}
+
+.account-tabs button.selected {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+
+.account-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.account-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+/* The dialog's own surface is --surface, so a field has to sit below it. */
+.account-pane input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.account-pane input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.account-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.account-name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.account-mail,
+.account-state {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.account-state.confirmed {
+  color: var(--accent-strong);
+}
 
 /* ------------------------------------------------------------------ */
 /* Toast                                                               */

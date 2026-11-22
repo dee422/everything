@@ -41,6 +41,7 @@ import {
   mountUserMenu,
   setUserMenuTheme,
 } from './ui/userMenu.js';
+import { mountAccount } from './ui/account.js';
 import {
   Clock,
   DEFAULT_TIME_ID,
@@ -171,6 +172,7 @@ const els = {
   rematchSub: $('rematch-sub'),
   rematchAccept: $('rematch-accept'),
   rematchDecline: $('rematch-decline'),
+  accountDialog: $('account-dialog'),
   themeButtons: document.querySelectorAll('.theme-toggle [data-theme-choice]'),
 };
 
@@ -746,7 +748,7 @@ function restoreGame() {
       ? `Game restored. ${colorName(game.turn())} to move.`
       : `Game restored. You play ${colorName(myColor)}.`;
   renderAll();
-  showToast('Picked up where you left off.');
+  showToast('Picked up where you left off.', { onlyIfIdle: true });
   if (mode === 'computer' && game.turn() !== myColor) computerTurn();
   return true;
 }
@@ -1122,7 +1124,11 @@ function showEnd(end) {
   }, 450);
 }
 
-function showToast(text) {
+function showToast(text, { onlyIfIdle = false } = {}) {
+  // 'onlyIfIdle' is for news that is nice to know but must not push out news a
+  // player is waiting on — the email-confirmation reply arrives on the same
+  // load as the restored-game note, and losing it means reloading to check.
+  if (onlyIfIdle && els.toast.classList.contains('show')) return;
   els.toast.textContent = text;
   els.toast.classList.add('show');
   clearTimeout(toastTimer);
@@ -2311,6 +2317,7 @@ closeOnBackdropClick(els.promoDialog);
 closeOnBackdropClick(els.gameoverDialog);
 closeOnBackdropClick(els.confirmDialog);
 closeOnBackdropClick(els.rematchDialog);
+closeOnBackdropClick(els.accountDialog);
 
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
@@ -2326,6 +2333,8 @@ window.addEventListener('keydown', (e) => {
     els.confirmDialog.close();
   } else if (els.rematchDialog.open) {
     els.rematchDialog.close();
+  } else if (els.accountDialog.open) {
+    els.accountDialog.close();
   } else if (selected) {
     // Escape means "put it back": a piece still held under the pointer is
     // dropped along with the selection, rather than left riding the cursor
@@ -2341,7 +2350,8 @@ function anyDialogOpen() {
     els.promoDialog.open ||
     els.gameoverDialog.open ||
     els.confirmDialog.open ||
-    els.rematchDialog.open
+    els.rematchDialog.open ||
+    els.accountDialog.open
   );
 }
 
@@ -2412,6 +2422,9 @@ loadSettings();
 applyTheme();
 // The SDK arrives with online play, if at all; the account menu comes with it.
 whenPuterLoaded(showUserMenu);
+// The ichessgeek account panel is ours and always on; it has nothing to do
+// with the Puter SDK menu above, which this build never loads.
+mountAccount({ showToast });
 
 if (!restoreGame()) {
   // Nothing to pick up (or what was stored no longer replays): start fresh.

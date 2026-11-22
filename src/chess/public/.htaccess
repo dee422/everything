@@ -13,10 +13,10 @@
 DirectoryIndex index.html
 
 # Everything the game needs is same-origin: the engine, the AI, the piece art,
-# the fonts, and the saved game in localStorage. There is no analytics, no
-# account system, and no peer play in this build, so the policy below allows
-# nothing else — which is also what makes "no sign-up, no ads" on the share
-# card true rather than a hope.
+# the fonts, the saved game in localStorage, and the optional account endpoints
+# under /api/v1/. There is no analytics and no peer play in this build, so the
+# policy below allows nothing else. Playing the computer still asks for no
+# account of any kind — signing up only opens the doors built on top of it.
 #
 # script-src carries one hash, for the inline script in index.html that picks
 # the theme before first paint. Vite copies that script into the build
