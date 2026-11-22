@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://chess.puter.com/sitemap.xml
+Sitemap: https://www.ichessgeek.com/chess/sitemap.xml

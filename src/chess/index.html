@@ -3,24 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Play chess for free, right in your browser. Challenge the computer, pass & play with a friend on one device, or invite a friend to a private online game." />
-    <link rel="canonical" href="https://chess.puter.com/" />
+    <meta name="description" content="Play chess for free, right in your browser. Challenge the computer at three levels, or pass & play with a friend on one device." />
+    <link rel="canonical" href="https://www.ichessgeek.com/chess/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Chess" />
-    <meta property="og:url" content="https://chess.puter.com/" />
+    <meta property="og:url" content="https://www.ichessgeek.com/chess/" />
     <meta property="og:title" content="Play Chess Online — vs the Computer or a Friend" />
-    <meta property="og:description" content="Play chess for free, right in your browser. Challenge the computer, pass & play on one device, or invite a friend to a private online game." />
+    <meta property="og:description" content="Play chess for free, right in your browser. Challenge the computer at three levels, or pass & play on one device." />
     <!-- 1200x630 (1.91:1) is the ratio Facebook, LinkedIn, Slack, and X's
          large card all render. Built from tools/og-image.html. -->
-    <meta property="og:image" content="https://chess.puter.com/og-image.png" />
+    <meta property="og:image" content="https://www.ichessgeek.com/chess/og-image.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Play Chess Online — free in your browser. A chess board showing a checkmate position." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Play Chess Online — vs the Computer or a Friend" />
-    <meta name="twitter:description" content="Play chess for free, right in your browser. Challenge the computer, pass & play on one device, or invite a friend to a private online game." />
-    <meta name="twitter:image" content="https://chess.puter.com/og-image.png" />
+    <meta name="twitter:description" content="Play chess for free, right in your browser. Challenge the computer at three levels, or pass & play on one device." />
+    <meta name="twitter:image" content="https://www.ichessgeek.com/chess/og-image.png" />
     <meta name="twitter:image:alt" content="Play Chess Online — free in your browser. A chess board showing a checkmate position." />
     <link rel="icon" href="favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
@@ -35,15 +35,15 @@
         "@context": "https://schema.org",
         "@type": ["WebApplication", "VideoGame"],
         "name": "Chess — Play Online",
-        "url": "https://chess.puter.com/",
-        "description": "Play chess for free, right in your browser. Challenge the computer, pass & play with a friend on one device, or invite a friend to a private online game.",
+        "url": "https://www.ichessgeek.com/chess/",
+        "description": "Play chess for free, right in your browser. Challenge the computer at three levels, or pass & play with a friend on one device.",
         "applicationCategory": "GameApplication",
         "operatingSystem": "Any",
         "browserRequirements": "Requires JavaScript",
         "genre": "Board game",
         "gamePlatform": "Web browser",
         "playMode": ["SinglePlayer", "MultiPlayer"],
-        "image": "https://chess.puter.com/icon-512.png",
+        "image": "https://www.ichessgeek.com/chess/icon-512.png",
         "offers": {
           "@type": "Offer",
           "price": "0",
@@ -69,27 +69,25 @@
         document.documentElement.dataset.theme = theme;
       })();
     </script>
-    <!-- Privacy-friendly analytics by Plausible -->
-    <script async src="https://plausible.io/js/pa-wKhkwB5oGmJ0GlsSr-Bun.js"></script>
-    <script>
-      window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-      plausible.init()
-    </script>
+    <!-- Plausible 是上游站的统计，脚本里写的是他们的站点 id，在我们域名上只会
+         404；src/analytics.js 的 track() 用 window.plausible?.()，没有存根也只是
+         什么都不做，所以这里整段去掉，不替换成别的统计。 -->
   </head>
   <body>
     <noscript>
       <p class="noscript-note">
         This chess game runs entirely in your browser and needs JavaScript to
-        work. Enable JavaScript to play against the computer, pass &amp; play
-        with a friend on one device, or start a private online game.
+        work. Enable JavaScript to play against the computer, or pass &amp; play
+        with a friend on one device.
       </p>
     </noscript>
     <div id="app">
       <header class="topbar">
-        <div class="brand">
+        <a class="brand" href="/" aria-label="Chess — back to the ichessgeek.com home page">
+          <span class="brand-back" aria-hidden="true">←</span>
           <span class="brand-mark"><img src="icon-128.png" alt="" width="128" height="128" /></span>
           <h1 class="brand-name">Chess<span class="visually-hidden"> — play the computer or a friend, free in your browser</span></h1>
-        </div>
+        </a>
         <div class="topbar-right">
           <span class="topbar-note" id="topbar-note">Player vs. Computer</span>
           <div class="theme-toggle" role="group" aria-label="Theme">
@@ -120,9 +118,6 @@
             </button>
             <button type="button" data-mode="local" aria-pressed="false">
               <i data-lucide="users"></i>Pass &amp; Play
-            </button>
-            <button type="button" data-mode="online" aria-pressed="false">
-              <i data-lucide="globe"></i>Online
             </button>
           </div>
 

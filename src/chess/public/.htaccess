@@ -1,0 +1,44 @@
+# Served from https://www.ichessgeek.com/chess/ — this file applies to that
+# directory and everything below it. It is authored in public/ so that Vite
+# copies it into every build.
+#
+# The site root keeps its own .htaccess for the React app; the SPA fallback
+# there is guarded by "REQUEST_FILENAME !-f / !-d", so this real directory is
+# never rewritten into it. The root app's service worker carries a matching
+# navigateFallbackDenylist, otherwise it would answer this navigation with the
+# cached root index.html and the board would never load.
+
+# The root .htaccess has no DirectoryIndex statement we can rely on, and this
+# build is a single index.html, so name it explicitly.
+DirectoryIndex index.html
+
+# Everything the game needs is same-origin: the engine, the AI, the piece art,
+# the fonts, and the saved game in localStorage. There is no analytics, no
+# account system, and no peer play in this build, so the policy below allows
+# nothing else — which is also what makes "no sign-up, no ads" on the share
+# card true rather than a hope.
+#
+# script-src carries one hash, for the inline script in index.html that picks
+# the theme before first paint. Vite copies that script into the build
+# verbatim, so the hash only changes when its text changes. Recompute with:
+#   python3 -c "import re,hashlib,base64;[print('sha256-'+base64.b64encode(hashlib.sha256(s.encode()).digest()).decode()) for s in re.findall(r'<script>(.*?)</script>',open('dist/index.html').read(),re.S)]"
+# (The JSON-LD block is a non-executing data block; CSP does not apply to it.)
+#
+# style-src needs no 'unsafe-inline': the app styles through CSSOM and class
+# toggles, never with style attributes or injected <style> elements.
+#
+# frame-src is left to default-src, which means this game may frame pages of
+# our own site and nothing else. frame-ancestors is '*' so any site may embed
+# the board in an iframe, ours included. There is deliberately no
+# X-Frame-Options header: it has no wildcard equivalent, and any value it can
+# carry would block framing in the browsers that honour it (browsers that
+# support frame-ancestors ignore it anyway).
+<IfModule mod_headers.c>
+  Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-Ae92DMlvhX2of26U5jhemEEtmQDwlfAX4yVGQ8Mrsfc='; style-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors *; upgrade-insecure-requests"
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+  Header set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+  # No includeSubDomains: RFC 6797 says a UA must ignore that directive when
+  # the policy arrives from a path other than "/", and this is /chess/.
+  Header set Strict-Transport-Security "max-age=31536000"
+</IfModule>

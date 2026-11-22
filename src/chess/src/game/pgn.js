@@ -80,7 +80,7 @@ export function buildPgn({
   control = null,
   termination = 'normal',
   event = 'Casual game',
-  site = 'chess.puter.com',
+  site = 'www.ichessgeek.com/chess',
 }) {
   const tags = [
     ['Event', event],

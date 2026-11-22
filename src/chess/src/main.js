@@ -177,7 +177,10 @@ const els = {
 const SETTINGS_KEY = 'chess-settings';
 // Display values for material difference (knight/bishop both count as 3).
 const DISPLAY_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
-const MODES = ['computer', 'local', 'online'];
+// Online play is wired up in src/net/online.js but reaches no player here: the
+// mode button is absent from index.html, so 'online' is not a mode this build
+// can enter, and nothing loads the Puter SDK.
+const MODES = ['computer', 'local'];
 const MODE_NOTES = {
   computer: 'Player vs. Computer',
   local: 'Pass & Play',
@@ -1698,25 +1701,6 @@ async function joinGame(rawCode) {
   }
 }
 
-/**
- * Join straight from an opened invite link. Signed-in users connect with no
- * further clicks; signed-out users keep the prefilled one-click Join, because
- * the sign-in popup needs a real user gesture to avoid popup blockers.
- */
-async function attemptAutoJoin(code) {
-  try {
-    const puter = await loadPuter();
-    if (!puter.auth?.isSignedIn?.()) return;
-  } catch {
-    return; // SDK unavailable; the manual Join path is still on screen
-  }
-  // The user may have acted while the SDK loaded — only proceed if the
-  // invite is still sitting untouched in the join box.
-  if (mode !== 'online' || !['idle', 'ended'].includes(onlineUiState)) return;
-  if (els.joinInput.value.trim() !== code) return;
-  joinGame(code);
-}
-
 /** Accept a bare code or a full invite link pasted into the join box. */
 function normalizeInviteCode(raw) {
   const text = (raw || '').trim();
@@ -2005,18 +1989,6 @@ function inviteLink() {
   return `${location.origin}${location.pathname}#g=${encodeURIComponent(
     session?.inviteCode || '',
   )}`;
-}
-
-function readInviteFromUrl() {
-  const match = /^#g=(.+)$/.exec(location.hash || '');
-  if (!match) return null;
-  // Strip the hash so a refresh doesn't try to rejoin a stale game.
-  history.replaceState(null, '', location.pathname + location.search);
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
 }
 
 async function copyToClipboard(text) {
@@ -2431,25 +2403,6 @@ window.addEventListener('pageshow', (e) => {
   renderAll();
 });
 
-// An invite link opened while the app is already running only changes the
-// hash (no reload) — pick it up here. A connected game is never interrupted.
-window.addEventListener('hashchange', () => {
-  const code = readInviteFromUrl();
-  if (!code) return;
-  if (session?.connected) {
-    // Never yank the player out of a live game — but don't be silent either.
-    showToast('You are in a game — finish or leave it before joining another.');
-    return;
-  }
-  teardownForModeChange();
-  if (mode !== 'online') {
-    mode = 'online';
-    saveSettings();
-  }
-  enterOnlineIdle({ inviteCode: code });
-  attemptAutoJoin(code);
-});
-
 /* ------------------------------------------------------------------ */
 /* Start                                                               */
 /* ------------------------------------------------------------------ */
@@ -2460,17 +2413,7 @@ applyTheme();
 // The SDK arrives with online play, if at all; the account menu comes with it.
 whenPuterLoaded(showUserMenu);
 
-const inviteFromUrl = readInviteFromUrl();
-if (inviteFromUrl && mode !== 'online') {
-  // Arriving through an invite link overrides the remembered mode (and is
-  // remembered, matching how a link opened into a running app behaves).
-  mode = 'online';
-  saveSettings();
-}
-if (mode === 'online') {
-  enterOnlineIdle({ inviteCode: inviteFromUrl });
-  if (inviteFromUrl) attemptAutoJoin(inviteFromUrl);
-} else if (!restoreGame()) {
+if (!restoreGame()) {
   // Nothing to pick up (or what was stored no longer replays): start fresh.
   newGame();
 }

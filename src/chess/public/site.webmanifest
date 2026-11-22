@@ -1,7 +1,7 @@
 {
   "name": "Chess — Play Online",
   "short_name": "Chess",
-  "description": "Play chess for free. Challenge the computer, pass & play with a friend on one device, or invite a friend to a private online game.",
+  "description": "Play chess for free. Challenge the computer at three levels, or pass & play with a friend on one device.",
   "start_url": ".",
   "display": "standalone",
   "theme_color": "#f4f5f9",
