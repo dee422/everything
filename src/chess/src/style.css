@@ -1479,6 +1479,113 @@ select:focus-visible {
 }
 
 /* ------------------------------------------------------------------ */
+/* Game library                                                        */
+/* ------------------------------------------------------------------ */
+
+.library-dialog {
+  width: min(94vw, 520px);
+  text-align: left;
+}
+
+.library-dialog .dialog-title {
+  text-align: center;
+}
+
+/* 全选 and the count are one line about the list below, not two controls. */
+.library-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.library-all {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.library-picked {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* Capped rather than left to grow: sixty rows would push the export button
+   below the fold on a phone, where the dialog itself scrolls. */
+.library-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+}
+
+.library-row:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+/* The whole row is the target, because picking one game out of sixty with a
+   17px checkbox on a phone is not something a player should have to do. */
+.library-row label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 2px;
+  cursor: pointer;
+}
+
+.library-row input {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.library-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* A sixty-character nickname would otherwise set the row's width and make
+     the meta line wrap one word at a time. */
+  min-width: 0;
+}
+
+.library-score {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.library-meta {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.library-empty {
+  margin: 18px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Export is the point of the panel, so it gets a row to itself; 清空 and
+   关闭 share the next one. */
+.dialog-buttons + .dialog-buttons {
+  margin-top: 10px;
+}
+
+/* ------------------------------------------------------------------ */
 /* Toast                                                               */
 /* ------------------------------------------------------------------ */
 

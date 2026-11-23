@@ -232,6 +232,9 @@
                 <button class="icon-btn icon-btn-sm" id="pgn-download-btn" type="button" title="下载 PGN 文件" aria-label="下载 PGN 文件" disabled>
                   <i data-lucide="download"></i>
                 </button>
+                <button class="icon-btn icon-btn-sm" id="library-btn" type="button" title="棋谱库：下过的局都在这里" aria-label="打开棋谱库">
+                  <i data-lucide="library"></i>
+                </button>
               </div>
             </div>
             <ol class="move-list" id="move-list"></ol>
@@ -408,6 +411,32 @@
           </button>
           <button class="btn btn-primary" id="account-close-btn" type="button">关闭</button>
         </div>
+      </div>
+    </dialog>
+
+    <dialog class="dialog library-dialog" id="library-dialog" aria-labelledby="library-title">
+      <h2 class="dialog-title" id="library-title">棋谱库</h2>
+      <p class="dialog-sub" id="library-note">下完的局存在这台设备上（最多 60 局）。勾选后一次导出成一个 PGN 文件。</p>
+
+      <div class="library-bar hidden" id="library-bar">
+        <label class="library-all" id="library-all">
+          <input type="checkbox" id="library-select-all" />
+          <span>全选</span>
+        </label>
+        <p class="library-picked" id="library-picked" role="status"></p>
+      </div>
+
+      <ul class="library-list" id="library-list"></ul>
+      <p class="library-empty" id="library-empty">还没有下完的局 —— 赢、输、和、认输都算，终局之后就会出现在这里。</p>
+
+      <div class="dialog-buttons">
+        <button class="btn btn-primary btn-block" id="library-export-btn" type="button">
+          <i data-lucide="download"></i>导出勾选的棋谱
+        </button>
+      </div>
+      <div class="dialog-buttons">
+        <button class="btn btn-ghost" id="library-clear-btn" type="button">清空</button>
+        <button class="btn btn-ghost" id="library-close-btn" type="button">关闭</button>
       </div>
     </dialog>
 

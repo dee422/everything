@@ -10,6 +10,8 @@
 /** PGN wraps movetext at 80 columns; long lines are legal but discourteous. */
 const LINE_WIDTH = 80;
 
+const pad = (n) => String(n).padStart(2, '0');
+
 /**
  * Tag values are quoted strings in which `"` and `\` must be escaped, and
  * which cannot contain newlines. Opponent names come off the wire, so this
@@ -25,7 +27,6 @@ function tagValue(value) {
 
 /** `YYYY.MM.DD` in local time, the PGN date format. */
 export function pgnDate(date) {
-  const pad = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}.${pad(date.getMonth() + 1)}.${pad(date.getDate())}`;
 }
 
@@ -102,15 +103,37 @@ export function buildPgn({
 
 /** A filesystem-safe name for a downloaded game. */
 export function pgnFilename(date) {
-  const pad = (n) => String(n).padStart(2, '0');
+  return `chess-${stamp(date)}.pgn`;
+}
+
+/** `20261123-1940`, the file-name form of a moment. */
+function stamp(date) {
   return [
-    'chess-',
     date.getFullYear(),
     pad(date.getMonth() + 1),
     pad(date.getDate()),
     '-',
     pad(date.getHours()),
     pad(date.getMinutes()),
-    '.pgn',
   ].join('');
+}
+
+/**
+ * Several games as one document.
+ *
+ * @param {Parameters<typeof buildPgn>[0][]} games each in buildPgn's own shape
+ */
+export function bundlePgn(games) {
+  // buildPgn ends each game with a single newline, and PGN wants a blank line
+  // before the next tag section — so joining with one newline is the whole job.
+  return games.map((game) => buildPgn(game)).join('\n');
+}
+
+/**
+ * The name for a bundle. The count is in it because a player exporting twice in
+ * a session would otherwise get two files called chess-…-1940.pgn, one of which
+ * the browser quietly renames to "(1)".
+ */
+export function bundleFilename(date, count) {
+  return `chess-${stamp(date)}-${count}games.pgn`;
 }

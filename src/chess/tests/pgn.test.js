@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildPgn, pgnDate, pgnFilename } from '../src/game/pgn.js';
+import {
+  buildPgn,
+  bundleFilename,
+  bundlePgn,
+  pgnDate,
+  pgnFilename,
+} from '../src/game/pgn.js';
 import { Chess } from '../src/engine/chess.js';
 
 const DATE = new Date(2026, 7, 11, 14, 32); // 11 August 2026, local time
@@ -136,5 +142,45 @@ describe('a real game', () => {
 describe('pgnFilename', () => {
   it('names the file after the date and time', () => {
     expect(pgnFilename(DATE)).toBe('chess-20260811-1432.pgn');
+  });
+});
+
+describe('a bundle of games', () => {
+  it('is one game written exactly as buildPgn writes it', () => {
+    expect(bundlePgn([base])).toBe(buildPgn(base));
+  });
+
+  it('leaves a blank line between one game’s movetext and the next tags', () => {
+    // PGN readers split a file on the empty line that follows a tag section,
+    // so two games run together are one game with a broken header.
+    const second = { ...base, result: '0-1' };
+    const pgn = bundlePgn([base, second]);
+    expect(pgn).toBe(`${buildPgn(base)}\n${buildPgn(second)}`);
+    const parts = pgn.split('\n\n');
+    expect(parts).toHaveLength(4); // header, movetext, header, movetext
+    expect(parts[2].startsWith('[Event ')).toBe(true);
+    expect(pgn.endsWith('\n')).toBe(true);
+  });
+
+  it('keeps every game it is handed', () => {
+    const pgn = bundlePgn([base, base, { ...base, sans: [], result: '*' }]);
+    expect([...pgn.matchAll(/^\[Result /gm)]).toHaveLength(3);
+    expect([...pgn.matchAll(/^\[White "Player"\]$/gm)]).toHaveLength(3);
+  });
+
+  it('writes each game with the date it was played, not the date of the export', () => {
+    const pgn = bundlePgn([
+      { ...base, date: new Date(2026, 0, 5, 9, 0) },
+      base,
+    ]);
+    expect(pgn).toContain('[Date "2026.01.05"]');
+    expect(pgn).toContain('[Date "2026.08.11"]');
+  });
+
+  it('names the file after the export and says how many games are in it', () => {
+    expect(bundleFilename(DATE, 3)).toBe('chess-20260811-1432-3games.pgn');
+    // The count is what keeps a second export of the same minute from being
+    // silently renamed to "…(1).pgn" by the browser.
+    expect(bundleFilename(DATE, 1)).not.toBe(pgnFilename(DATE));
   });
 });

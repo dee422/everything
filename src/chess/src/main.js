@@ -28,6 +28,7 @@ import {
   ChevronLast,
   ClipboardCopy,
   Download,
+  Library,
 } from 'lucide';
 
 import { Chess, colorOf } from './engine/chess.js';
@@ -47,8 +48,10 @@ import {
   speakClock,
   timeControl,
 } from './game/clock.js';
-import { buildPgn, pgnFilename } from './game/pgn.js';
+import { buildPgn, bundleFilename, bundlePgn, pgnFilename } from './game/pgn.js';
+import { addEntry } from './game/library.js';
 import { clearGame, loadGame, saveGame } from './game/persistence.js';
+import { mountLibrary } from './ui/library.js';
 import { track } from './analytics.js';
 
 createIcons({
@@ -75,6 +78,7 @@ createIcons({
     ChevronLast,
     ClipboardCopy,
     Download,
+    Library,
   },
 });
 
@@ -160,6 +164,7 @@ const els = {
   confirmYes: $('confirm-yes'),
   confirmNo: $('confirm-no'),
   accountDialog: $('account-dialog'),
+  libraryDialog: $('library-dialog'),
   themeButtons: document.querySelectorAll('.theme-toggle [data-theme-choice]'),
 };
 
@@ -312,6 +317,7 @@ let endTracked = false;
 function resetTracking() {
   startTracked = false;
   endTracked = false;
+  archiveId = null;
 }
 
 /** A reset board is not a game — the first ply is what makes it one. */
@@ -333,6 +339,49 @@ function trackGameEnd(end) {
   // `result` is this device's point of view. Pass & play has no "you", so a
   // decisive game there is always reported as a win.
   track('Game Completed', { mode, result: end.kind, reason: end.reason });
+}
+
+/* ------------------------------------------------------------------ */
+/* The game library                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * This game's row in the library, made once and kept, so a game that ends,
+ * gets un-ended by an undo, and ends again updates one row rather than adding a
+ * truncated one beside it. resetTracking() starts a new row with a new game.
+ */
+let archiveId = null;
+
+/**
+ * Keep the game that just ended for the library panel (see ui/library.js),
+ * which is where a session's games get exported together.
+ *
+ * An online game counts even though it is never saved for a reload: the
+ * scoresheet outlives the connection, and handing it over afterwards is the
+ * reason it is stored at all.
+ */
+function archiveFinishedGame(end) {
+  // A game that ended before anyone moved never happened — the same test
+  // trackGameEnd uses.
+  if (game.history().length === 0) return;
+
+  const names = pgnNames();
+  archiveId ??= `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  addEntry({
+    // Enough to tell two games apart on this device; nothing reaches a server.
+    id: archiveId,
+    at: Date.now(),
+    mode,
+    level: mode === 'computer' ? level : null,
+    sans: game.history().map((m) => m.san),
+    result: end.result,
+    white: names.w,
+    black: names.b,
+    // A pair, the way persistence.js stores a clock: the object is put back by
+    // parseEntry when the row is read.
+    control: clock.control ? [clock.control.initial, clock.control.increment] : null,
+    termination: end.termination,
+  });
 }
 
 function loadSettings() {
@@ -1126,6 +1175,7 @@ function renderBanner() {
 
 function showEnd(end) {
   trackGameEnd(end);
+  archiveFinishedGame(end);
   els.gameoverTitle.textContent = end.title;
   els.gameoverSub.textContent = end.sub;
   for (const [kind, el] of Object.entries(els.gameoverIcons)) {
@@ -2279,28 +2329,56 @@ async function copyPgn() {
   }
 }
 
-function downloadPgn() {
-  if (game.history().length === 0) return;
-  const now = new Date();
+/**
+ * Put a PGN document where the browser will offer it as a file. Returns whether
+ * it managed that: `onBlocked` is for the browsers that refuse downloads
+ * outright (the ones inside a chat app), and only a caller that can hand the
+ * text some other way has anything to do there.
+ */
+function savePgnFile(name, text, onBlocked) {
   let url = null;
   try {
-    url = URL.createObjectURL(
-      new Blob([currentPgn(now)], { type: 'application/x-chess-pgn' }),
-    );
+    url = URL.createObjectURL(new Blob([text], { type: 'application/x-chess-pgn' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = pgnFilename(now);
+    link.download = name;
     document.body.appendChild(link);
     link.click();
     link.remove();
     // Released on a later task, once the download has certainly started.
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    showToast('棋谱已存成 PGN 文件。');
+    return true;
   } catch {
     if (url) URL.revokeObjectURL(url);
-    copyPgn(); // no downloads here; the clipboard still gets the player the game
+    onBlocked();
+    return false;
   }
 }
+
+function downloadPgn() {
+  if (game.history().length === 0) return;
+  const now = new Date();
+  // The clipboard still gets the player their game where downloads do not work.
+  if (savePgnFile(pgnFilename(now), currentPgn(now), copyPgn)) {
+    showToast('棋谱已存成 PGN 文件。');
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Game library                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The panel of finished games (see ui/library.js). It reads storage and not the
+ * board, so all this needs is a way to hand a file over and a way to ask before
+ * throwing the list away.
+ */
+mountLibrary({
+  showToast,
+  askConfirm,
+  download: (name, text) =>
+    savePgnFile(name, text, () => showToast('下载被浏览器拦下了 —— 换个浏览器再试。')),
+});
 
 /* ------------------------------------------------------------------ */
 /* Account                                                             */
@@ -2430,11 +2508,12 @@ closeOnBackdropClick(els.promoDialog);
 closeOnBackdropClick(els.gameoverDialog);
 closeOnBackdropClick(els.confirmDialog);
 closeOnBackdropClick(els.accountDialog);
+closeOnBackdropClick(els.libraryDialog);
 
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  // Escape in the account panel closes that panel and nothing else.
-  if (e.target instanceof Element && e.target.closest('#account-dialog')) return;
+  // Escape in the account or library panel closes that panel and nothing else.
+  if (e.target instanceof Element && e.target.closest('#account-dialog, #library-dialog')) return;
   // Dialogs close natively on Escape; handle them here too so the shortcut
   // cannot be lost, and so Escape means "close dialog" before "deselect".
   if (els.promoDialog.open) {
