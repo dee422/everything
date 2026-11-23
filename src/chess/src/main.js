@@ -219,6 +219,12 @@ let hasSave = true;
 // position the player has given it.
 let movesShown = { plies: -1, total: -1 };
 
+/** How long a move the referee has not written down stays on the board as our
+ *  guess. A reply can be lost with the move already recorded, which is why the
+ *  wait exists at all — but the polls go on answering, and a game they never
+ *  mention is a game that never arrived. Three of the usual polls. */
+const SENT_MAX_MS = 3 * POLL_MS;
+
 // Online play. `roomGame` holds the room and the cursor over its event list
 // (net/room.js); the rest of this is the board's side of that conversation —
 // which state the chrome shows, and which of the server's moves are already on
@@ -230,6 +236,7 @@ let roomRole = null; // 'host' (we made the room) | 'guest' (we joined one)
 let roomTimer = 0; // the interval that asks the server what we have missed
 let appliedSeq = 0; // the last event the board is showing
 let sentSan = null; // our move, on its way to the referee and not yet taken
+let sentAt = 0; // when it went, so the wait for its echo has an end
 let requestOut = false; // one call at a time: a slow host must not pile them up
 let rebuilding = false; // the board is being replayed from the server's move list
 let flagPollDone = false; // asked once already after a displayed clock hit zero
@@ -1341,6 +1348,7 @@ function attemptMove(from, to, { animate }) {
       // charging the player who is thinking until their move lands, and the
       // reading that counts arrives with the snapshot.
       sentSan = played.san;
+      sentAt = Date.now();
       trackGameStart();
       sendRoomMove(played.san);
     } else {
@@ -1804,6 +1812,9 @@ function handleRoomSnapshot(snap, fresh) {
 
   const before = game.history().length;
   if (!applyEvents(fresh) || needsRebuild(snap)) {
+    // A piece jumping back on its own looks like the board misbehaving, so say
+    // which of the two it is: the referee never got that move.
+    if (staleGuess()) showToast('那一步服务器没有收到，棋盘已退回。');
     rebuild();
     return;
   }
@@ -1927,8 +1938,18 @@ function needsRebuild(snap) {
   // Ahead of the room row is the server's own two reads a move apart, not a
   // board out of step; and with a move in flight this side is honestly one ply
   // past the record until the referee confirms or refuses it.
-  if (appliedSeq > snap.seq || sentSan !== null) return false;
+  if (appliedSeq > snap.seq) return false;
+  if (sentSan !== null) return staleGuess();
   return game.fen() !== snap.fen;
+}
+
+/** Has the referee stopped answering about a move we still believe we played?
+ *  The reply to a move can be lost with the move itself, which is why the guess
+ *  waits at all — but the polls go on coming back without it, and after three of
+ *  them the request is gone. Every tap is locked until the board stops assuming
+ *  otherwise, so this is what ends the wait. */
+function staleGuess() {
+  return sentSan !== null && Date.now() - sentAt >= SENT_MAX_MS;
 }
 
 /**
