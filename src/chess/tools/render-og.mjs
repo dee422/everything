@@ -1,5 +1,5 @@
 /**
- * Renders tools/og-image.html to public/og-image.png.
+ * Renders tools/og-image.html to public/og-image-v2.png.
  *
  * Shot at 2× and downsampled, which antialiases the text and board edges
  * better than rendering at 1× does. Playwright and ImageMagick are only
@@ -8,6 +8,10 @@
  *   npm i --no-save playwright && npx playwright install chromium
  *   npm run dev                      # serves the fonts, icon, and pieces
  *   node tools/render-og.mjs [port]
+ *
+ * The name below must stay the one index.html's og:image points at, and a new
+ * picture means a new name: crawlers and the CDN key the image on its URL, so
+ * overwriting this file leaves the old card in place for a week.
  */
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -16,7 +20,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 
 const port = process.argv[2] || '5173';
-const out = new URL('../public/og-image.png', import.meta.url).pathname;
+const out = new URL('../public/og-image-v2.png', import.meta.url).pathname;
 
 const browser = await chromium.launch();
 const page = await browser.newPage({

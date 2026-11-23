@@ -3,25 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="浏览器里直接下国际象棋，免费。三个难度和电脑对弈，或者两个人用一台设备同屏对弈，也可以报个房间码和朋友在线对弈。" />
+    <meta name="description" content="给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），同屏或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。" />
     <link rel="canonical" href="https://www.ichessgeek.com/chess/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="国际象棋" />
     <meta property="og:url" content="https://www.ichessgeek.com/chess/" />
-    <meta property="og:title" content="在线下国际象棋 —— 和电脑，或者和朋友" />
-    <meta property="og:description" content="浏览器里直接下国际象棋，免费。三个难度和电脑对弈、同屏对弈，或者用房间码和朋友在线对弈。" />
+    <meta property="og:title" content="国际象棋自学 —— 浏览器里练棋、复盘、导棋谱" />
+    <meta property="og:description" content="免费、不用装东西。和电脑练，或者报房间码和朋友在线下；走完一手一手回看，棋谱一键复制或存成 PGN。" />
     <!-- 1200x630 (1.91:1) is the ratio Facebook, LinkedIn, Slack, and X's
-         large card all render. Built from tools/og-image.html. -->
-    <meta property="og:image" content="https://www.ichessgeek.com/chess/og-image.png" />
+         large card all render. Built from tools/og-image.html.
+         The name carries a v2 because crawlers and the CDN key the picture on
+         its URL: overwriting og-image.png would keep serving the old card for a
+         week, and links shared earlier still point at that URL, so it stays. -->
+    <meta property="og:image" content="https://www.ichessgeek.com/chess/og-image-v2.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="在线下国际象棋 —— 浏览器里免费。一张走出将死的棋盘。" />
+    <meta property="og:image:alt" content="国际象棋自学 —— 浏览器里免费。一张走出将死的棋盘。" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="在线下国际象棋 —— 和电脑，或者和朋友" />
-    <meta name="twitter:description" content="浏览器里直接下国际象棋，免费。三个难度和电脑对弈、同屏对弈，或者用房间码和朋友在线对弈。" />
-    <meta name="twitter:image" content="https://www.ichessgeek.com/chess/og-image.png" />
-    <meta name="twitter:image:alt" content="在线下国际象棋 —— 浏览器里免费。一张走出将死的棋盘。" />
+    <meta name="twitter:title" content="国际象棋自学 —— 浏览器里练棋、复盘、导棋谱" />
+    <meta name="twitter:description" content="免费、不用装东西。和电脑练，或者报房间码和朋友在线下；走完一手一手回看，棋谱一键复制或存成 PGN。" />
+    <meta name="twitter:image" content="https://www.ichessgeek.com/chess/og-image-v2.png" />
+    <meta name="twitter:image:alt" content="国际象棋自学 —— 浏览器里免费。一张走出将死的棋盘。" />
     <link rel="icon" href="favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
@@ -29,15 +32,15 @@
     <link rel="manifest" href="site.webmanifest" />
     <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#13151b" media="(prefers-color-scheme: dark)" />
-    <title>在线下国际象棋 —— 和电脑，或者和朋友</title>
+    <title>国际象棋自学 —— 浏览器里练棋、复盘、导棋谱</title>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": ["WebApplication", "VideoGame"],
-        "name": "国际象棋 —— 在线对弈",
+        "name": "国际象棋自学 —— 浏览器里练棋、复盘、导棋谱",
         "url": "https://www.ichessgeek.com/chess/",
-        "description": "浏览器里直接下国际象棋，免费。三个难度和电脑对弈，或者两个人用一台设备同屏对弈，也可以报个房间码和朋友在线对弈。",
-        "applicationCategory": "GameApplication",
+        "description": "给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），同屏或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。",
+        "applicationCategory": "EducationalApplication",
         "operatingSystem": "任何系统",
         "browserRequirements": "需要 JavaScript",
         "genre": "棋类",
@@ -85,7 +88,7 @@
         <a class="brand" href="/" aria-label="国际象棋 —— 返回 ichessgeek.com 首页">
           <span class="brand-back" aria-hidden="true">←</span>
           <span class="brand-mark"><img src="icon-128.png" alt="" width="128" height="128" /></span>
-          <h1 class="brand-name">国际象棋<span class="visually-hidden"> —— 和电脑或朋友下棋，浏览器里免费</span></h1>
+          <h1 class="brand-name">国际象棋<span class="visually-hidden"> —— 浏览器里免费练棋、复盘、导棋谱</span></h1>
         </a>
         <div class="topbar-right">
           <span class="topbar-note" id="topbar-note">电脑对弈</span>

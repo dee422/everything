@@ -13,10 +13,11 @@
 DirectoryIndex index.html
 
 # Everything the game needs is same-origin: the engine, the AI, the piece art,
-# the fonts, the saved game in localStorage, and the optional account endpoints
-# under /api/v1/. There is no analytics and no peer play in this build, so the
-# policy below allows nothing else. Playing the computer still asks for no
-# account of any kind — signing up only opens the doors built on top of it.
+# the fonts, the saved game in localStorage, and the account and room endpoints
+# under /api/v1/. There is no analytics, so the policy below allows nothing
+# else. Playing the computer still asks for no account of any kind — signing up
+# only opens what is built on top of it: the rooms, and the email that verifies
+# a seat in one.
 #
 # script-src carries one hash, for the inline script in index.html that picks
 # the theme before first paint. Vite copies that script into the build

@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  Source for public/og-image.png (the social share card).
+  Source for public/og-image-v2.png (the social share card).
 
   It is a real 1200×630 page rather than a hand-drawn image so it stays in the
   app's design language: same Inter, same accent, same board colors, same
@@ -9,10 +9,20 @@
     npm run dev
     node tools/render-og.mjs
 
-  Facebook, LinkedIn, and Slack cache share images per URL, so after changing
-  the picture either re-scrape it in their debuggers or bump the filename.
+  That script needs Playwright plus macOS `sips` and ImageMagick. On Windows
+  the same pixels come out of headless Edge at 2x and one Pillow resize:
+
+    "…/msedge.exe" --headless=new --disable-gpu --hide-scrollbars
+      --window-size=1200,630 --force-device-scale-factor=2
+      --screenshot=D:/tmp/og-2x.png --virtual-time-budget=9000
+      --user-data-dir=D:/tmp/edge_og http://127.0.0.1:5173/tools/og-image.html
+
+  Facebook, LinkedIn, and Slack cache share images per URL, and Cloudflare holds
+  a .png at the edge for a week, so a new picture needs a new filename — the old
+  URL cannot be made to change its mind. Keep `og-image.png` on the host so links
+  already shared still show their card, and point both meta tags at the new name.
 -->
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <title>og:image source — 1200×630</title>
@@ -55,7 +65,7 @@
         gap: 58px;
         padding: 0 76px;
         overflow: hidden;
-        font-family: 'Inter', system-ui, sans-serif;
+        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
         -webkit-font-smoothing: antialiased;
         /* Deep navy so the card reads as the app's icon at thumbnail size,
            and so it never glares in a dark timeline. */
@@ -94,9 +104,10 @@
       h1 {
         margin: 0 0 20px;
         font-size: 74px;
-        line-height: 1.03;
+        line-height: 1.08;
         font-weight: 700;
-        letter-spacing: -0.028em;
+        /* Inter's optical tightening is wrong for full-width Han glyphs. */
+        letter-spacing: 0.005em;
         color: #ffffff;
       }
 
@@ -169,12 +180,13 @@
           <img src="/icon-192.png" alt="" />
           <span>www.ichessgeek.com/chess</span>
         </div>
-        <h1>Play Chess Online</h1>
-        <p class="sub">Free in your browser. No sign-up, no ads.</p>
+        <h1>国际象棋自学</h1>
+        <p class="sub">浏览器里直接下，免费、不用装东西、没有广告。</p>
         <div class="pills">
-          <div class="pill">vs. Computer</div>
-          <div class="pill">Pass &amp; Play</div>
-          <div class="pill">Chess Clocks</div>
+          <div class="pill">和电脑练</div>
+          <div class="pill">同屏或在线</div>
+          <div class="pill">复盘回看</div>
+          <div class="pill">导出 PGN</div>
         </div>
       </div>
       <div class="board" id="board"></div>
