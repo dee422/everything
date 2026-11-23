@@ -258,6 +258,54 @@ describe('the cursor over the server’s event list', () => {
     expect(api.calls.map((c) => c.name)).toEqual(['join']);
   });
 
+  it('drops the answer of a poll that was still out when the room was left', async () => {
+    // 【离开】 stops the asking and forgets the code, but a request already on
+    // its way still comes back. Adopting it would hand the board a room row and
+    // sit the player down at the game they just left — which is what makes the
+    // first 离开 look like it did nothing.
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const answered = { ok: true, room: room({ seq: 1 }), events: [played(1, 'e4')] };
+    const api = scriptedApi({
+      join: [{ ok: true, room: room(), events: [] }],
+      poll: [gate.then(() => answered)],
+    });
+    const seen = watcher();
+    const game = new RoomGame({ api, ...seen });
+    await game.join('ABCDEF');
+    const polling = game.poll();
+    game.reset();
+    release(answered);
+    await polling;
+    expect(seen.snapshots).toHaveLength(1); // only the join ever reached the board
+    expect(game.room).toBe(null);
+    expect(game.code).toBe(null);
+  });
+
+  it('drops the answer of a move that came back after the room was left', async () => {
+    // Same race on the other call, and worse if it is a refusal: the board would
+    // be told its move failed in a game it is no longer playing.
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const api = scriptedApi({
+      join: [{ ok: true, room: room(), events: [] }],
+      move: [gate.then(() => ({ ok: false, code: 'not_room_member', message: '你不在这个房间里' }))],
+    });
+    const seen = watcher();
+    const game = new RoomGame({ api, ...seen });
+    await game.join('ABCDEF');
+    const sending = game.move('e4');
+    game.reset();
+    release({ ok: false, code: 'not_room_member', message: '你不在这个房间里' });
+    const reply = await sending;
+    expect(seen.order).toEqual(['snapshot']);
+    expect(reply.ok).toBe(false); // the caller still gets the reply it asked for
+  });
+
   it('starts a fresh event list at the next room', async () => {
     const api = scriptedApi({
       create: [

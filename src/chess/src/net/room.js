@@ -91,6 +91,8 @@ export class RoomGame {
     this.room = null;
     /** Every event this client has been told about, oldest first. */
     this.events = [];
+    /** Which room the calls in flight belong to. See _ask. */
+    this.epoch = 0;
     this._settling = false;
   }
 
@@ -116,8 +118,10 @@ export class RoomGame {
     return other?.nickname ?? null;
   }
 
-  /** Forget the room: the next create/join starts a fresh event list. */
+  /** Forget the room: the next create/join starts a fresh event list, and any
+   *  reply still on its way here belongs to the room being walked away from. */
   reset() {
+    this.epoch++;
     this.code = null;
     this.room = null;
     this.events = [];
@@ -126,20 +130,32 @@ export class RoomGame {
 
   async create({ color, timeMs }) {
     this.reset();
-    return this._reply(await this.api.create({ color, timeMs }));
+    return this._ask(() => this.api.create({ color, timeMs }));
   }
 
   async join(code) {
     this.reset();
-    return this._reply(await this.api.join(code));
+    return this._ask(() => this.api.join(code));
   }
 
   async move(san) {
-    return this._reply(await this.api.move(this.code, san));
+    return this._ask(() => this.api.move(this.code, san));
   }
 
   async resign() {
-    return this._reply(await this.api.resign(this.code));
+    return this._ask(() => this.api.resign(this.code));
+  }
+
+  /**
+   * Ask something of the room, and take the answer only if it is still this
+   * room. Every call here is a round trip the player can walk away from mid
+   * flight, and a room row is indistinguishable from one they are in — adopt it
+   * and the board sits them back down at the game they just left.
+   */
+  async _ask(what) {
+    const epoch = this.epoch;
+    const reply = await what();
+    return epoch === this.epoch ? this._reply(reply) : reply;
   }
 
   /**
@@ -149,7 +165,9 @@ export class RoomGame {
    */
   async poll(since = this.seqSeen()) {
     if (!this.code) return null;
+    const epoch = this.epoch;
     const reply = await this.api.poll(this.code, since);
+    if (epoch !== this.epoch) return reply; // the room was left while this was out
     if (!reply?.ok) {
       this.onError(reply);
       return reply;
@@ -175,7 +193,7 @@ export class RoomGame {
     if (this._settling) return null;
     this._settling = true;
     try {
-      return this._reply(await this.api.settle(this.code));
+      return await this._ask(() => this.api.settle(this.code));
     } finally {
       this._settling = false;
     }
