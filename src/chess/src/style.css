@@ -1097,6 +1097,95 @@ button.ply:focus-visible {
   white-space: nowrap;
 }
 
+/* Stockfish's reading of the position the board is showing */
+.analysis-toggle {
+  flex: none;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.analysis {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.eval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The bar is White's share of the position, which makes the track it runs in
+   Black's. Both halves are fixed colours rather than theme ones: they stand
+   for the two armies, not for the surface they happen to be drawn on. */
+.eval-bar {
+  flex: 1;
+  height: 10px;
+  border-radius: 6px;
+  background: #23262f;
+  overflow: hidden;
+}
+
+.eval-fill {
+  display: block;
+  height: 100%;
+  width: 50%;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(18, 24, 44, 0.18);
+  transition: width 0.12s ease;
+}
+
+.eval-score {
+  flex: none;
+  min-width: 52px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.eval-line {
+  display: flex;
+  gap: 8px;
+}
+
+.eval-line-score {
+  flex: none;
+  min-width: 46px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-line-moves {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.eval-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Nothing to say while a search is simply running, so the panel does not keep
+   an empty line of its height. */
+.eval-note:empty {
+  display: none;
+}
+
 /* Nothing on the board can be picked up while an older position is shown. */
 .board.reviewing .piece {
   cursor: default;

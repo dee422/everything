@@ -255,7 +255,25 @@
                 </button>
               </div>
               <p class="review-note" id="review-note"></p>
+              <!-- Off until asked for, because the engine that fills this is
+                   1,845,971 bytes and takes 10-20 seconds to arrive on this
+                   site's connection. Nothing else on the page waits for it.
+                   Its title and its disabled state both come from main.js on
+                   every render, because whether it is allowed depends on the
+                   game: an engine has no business at the board while someone
+                   is waiting for their turn online. -->
+              <button class="btn btn-ghost analysis-toggle" id="analysis-btn" type="button" aria-pressed="false">
+                <i data-lucide="activity"></i>分析
+              </button>
             </div>
+            <section class="analysis hidden" id="analysis-panel" aria-label="引擎评估">
+              <div class="eval-row">
+                <div class="eval-bar" aria-hidden="true"><span class="eval-fill" id="eval-fill"></span></div>
+                <span class="eval-score" id="eval-score"></span>
+              </div>
+              <ol class="eval-lines" id="eval-lines"></ol>
+              <p class="eval-note" id="eval-note"></p>
+            </section>
           </section>
 
           <section class="card player-card" id="card-bottom">

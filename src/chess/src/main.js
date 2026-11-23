@@ -29,10 +29,13 @@ import {
   ClipboardCopy,
   Download,
   Library,
+  Activity,
 } from 'lucide';
 
 import { Chess, colorOf } from './engine/chess.js';
 import { chooseMove, LEVELS } from './engine/ai.js';
+import { createStockfish, scoreToCentipawns } from './engine/stockfish.js';
+import { canAnalyze, evalPercent, formatLine, formatScore, pvToSan } from './game/analysis.js';
 import { BoardView, pieceUrl, pieceLabel } from './ui/boardView.js';
 import { RoomGame, normalizeCode, POLL_MS, ROOM_MAX_TIME_MS } from './net/room.js';
 import { problemText } from './net/auth.js';
@@ -79,6 +82,7 @@ createIcons({
     ClipboardCopy,
     Download,
     Library,
+    Activity,
   },
 });
 
@@ -113,6 +117,12 @@ const els = {
   reviewNextBtn: $('review-next-btn'),
   reviewLastBtn: $('review-last-btn'),
   reviewNote: $('review-note'),
+  analysisBtn: $('analysis-btn'),
+  analysisPanel: $('analysis-panel'),
+  evalFill: $('eval-fill'),
+  evalScore: $('eval-score'),
+  evalLines: $('eval-lines'),
+  evalNote: $('eval-note'),
   srStatus: $('sr-status'),
   toast: $('toast'),
   controls: $('controls'),
@@ -701,6 +711,11 @@ function positionAt(plies) {
   return replay;
 }
 
+/** The position the board is showing: the live game, or an earlier ply. */
+function shownPosition(plies) {
+  return plies === game.history().length ? game : positionAt(plies);
+}
+
 /** How a ply is written in chess: "12." for White's move, "12…" for Black's. */
 function plyLabel(plies) {
   return `${Math.ceil(plies / 2)}${plies % 2 === 1 ? '.' : '…'}`;
@@ -729,6 +744,199 @@ function announceReview() {
     const move = game.history()[plies - 1];
     els.srStatus.textContent = `回看中 —— ${colorName(move.color)}走了 ${move.san}。`;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Analysing the position on the board                                 */
+/*                                                                     */
+/* Stockfish is opt-in, and only ever for a look: it is 1.8MB and takes */
+/* 10-20 seconds to arrive on this site's connection, so nothing about  */
+/* playing waits for it and nothing about playing depends on it.        */
+/* ------------------------------------------------------------------ */
+
+const ANALYSIS_TITLE = '用 Stockfish 分析棋盘上的局面';
+const ANALYSIS_BLOCKED_TITLE = '在线对弈进行中不能分析 —— 等这一局结束再复盘。';
+const ENGINE_LOAD_NOTE = '正在装载分析引擎……';
+const ENGINE_FAIL_NOTE = '分析引擎没能加载 —— 下棋不受影响，稍后再按一下试试。';
+/** What an ended position is called, in the one word the panel has room for. */
+const END_TERM = {
+  checkmate: '将死',
+  stalemate: '逼和',
+  'insufficient material': '子力不足',
+  'fifty-move rule': '五十步',
+  'threefold repetition': '三次重复',
+};
+
+let engine = null;
+let engineStarting = null;
+let analyzing = false;
+// The position the engine last spoke about, so a render that changed nothing
+// else cannot start a second search for the same one.
+let analyzedFen = null;
+// Bumped whenever analysis stops, so a boot or a search already on its way
+// learns that the player has walked away from it.
+let analysisToken = 0;
+
+/**
+ * An engine may look at a game while it is still going only when nobody is
+ * waiting for their turn in it. Once an online game has ended, the player can
+ * see what either side should have done.
+ */
+function analysisAllowed() {
+  return canAnalyze({ mode, onlineUiState });
+}
+
+function setAnalysis(on) {
+  if (analyzing === on) return;
+  analyzing = on;
+  els.analysisBtn.classList.toggle('btn-primary', on);
+  els.analysisBtn.classList.toggle('btn-ghost', !on);
+  els.analysisBtn.setAttribute('aria-pressed', String(on));
+  els.analysisPanel.classList.toggle('hidden', !on);
+  if (on) {
+    const plies = viewPlies();
+    renderAnalysis(plies, shownPosition(plies));
+  } else {
+    closeEngine();
+  }
+}
+
+function closeEngine() {
+  analysisToken++;
+  if (engine) engine.dispose();
+  // A boot that is still in progress has no controller to close yet, but it
+  // will have one a moment from now; hand it the same instruction then.
+  else if (engineStarting) engineStarting.then((e) => e.dispose()).catch(() => {});
+  engine = null;
+  engineStarting = null;
+  analyzedFen = null;
+  clearAnalysis();
+}
+
+function clearAnalysis() {
+  els.evalFill.style.width = `${evalPercent(null)}%`;
+  els.evalScore.textContent = '';
+  els.evalLines.replaceChildren();
+  els.evalNote.textContent = '';
+}
+
+/** Called from renderAll, so the engine follows whatever the board shows. */
+function renderAnalysis(plies, position) {
+  if (!analyzing || !analysisAllowed()) return;
+  analyzePosition(plies, position);
+}
+
+/**
+ * Ask about one position. Stepping through a game asks again as it goes: the
+ * adapter stops the search that is running and drops anything the player has
+ * already walked past, which is what keeps this responsive while an arrow key
+ * is held down instead of leaving the engine working through stale plies.
+ */
+async function analyzePosition(plies, position) {
+  const fen = position.fen();
+  if (fen === analyzedFen) return;
+  const token = analysisToken;
+  const turn = position.turn();
+  const status = position.status();
+  if (status.over) {
+    // The game is decided, so there is nothing to search and no line to show.
+    analyzedFen = fen;
+    els.evalFill.style.width = `${
+      status.result === '1-0' ? 100 : status.result === '0-1' ? 0 : evalPercent(0)
+    }%`;
+    els.evalScore.textContent = END_TERM[status.reason] || '和棋';
+    els.evalLines.replaceChildren();
+    els.evalNote.textContent = '这一局已经结束了。';
+    return;
+  }
+  analyzedFen = fen;
+  els.evalNote.textContent = '正在分析……';
+  try {
+    const controller = await ensureEngine(token);
+    if (!controller || token !== analysisToken) return;
+    const result = await controller.analyze({
+      fen,
+      // Only the bar moves while the search deepens. The three lines are
+      // written once, at the end, because turning each of their moves into SAN
+      // means replaying it and there is no reason to replay a line three times
+      // a second.
+      onInfo: (info) => {
+        // `analyzedFen` is the newest position asked for, so a report about
+        // one the player has stepped past is dropped rather than painted over
+        // the position now on the board.
+        if (info.multipv === 1 && token === analysisToken && fen === analyzedFen) {
+          paintEvaluation([info], turn);
+        }
+      },
+    });
+    if (token !== analysisToken || fen !== analyzedFen) return;
+    paintEvaluation(result.lines, turn);
+    paintLineTexts(result.lines, turn, plies, fen);
+    els.evalNote.textContent = `已算到第 ${result.lines[0]?.depth ?? '…'} 层`;
+  } catch (error) {
+    // A later ply replaced this search; the one that superseded it is already
+    // painting, so there is nothing to say about this one.
+    if (error?.reason === 'superseded' || token !== analysisToken) return;
+    analyzedFen = null;
+    analyzing = false;
+    els.analysisBtn.classList.toggle('btn-primary', false);
+    els.analysisBtn.classList.toggle('btn-ghost', true);
+    els.analysisBtn.setAttribute('aria-pressed', 'false');
+    els.evalNote.textContent = ENGINE_FAIL_NOTE;
+  }
+}
+
+async function ensureEngine(token) {
+  if (engine) return engine;
+  if (!engineStarting) {
+    els.evalNote.textContent = ENGINE_LOAD_NOTE;
+    engineStarting = createStockfish({
+      onProgress: (progress) => showDownloadProgress(token, progress),
+    });
+  }
+  const controller = await engineStarting;
+  if (token !== analysisToken) {
+    controller.dispose();
+    return null;
+  }
+  engine = controller;
+  engineStarting = null;
+  return engine;
+}
+
+/**
+ * The engine reports its own download, because the wasm arrives inside the
+ * worker and the page cannot see that request. `percent` runs 0..1.
+ */
+function showDownloadProgress(token, progress) {
+  if (token !== analysisToken || !analyzing || engine) return;
+  const pct = progress?.percent ? Math.min(99, Math.round(progress.percent * 100)) : 0;
+  els.evalNote.textContent = pct ? `正在下载引擎 ${pct}%` : ENGINE_LOAD_NOTE;
+}
+
+function paintEvaluation(lines, turn) {
+  const top = [...lines].sort((a, b) => a.multipv - b.multipv)[0];
+  if (!top) return;
+  els.evalFill.style.width = `${evalPercent(scoreToCentipawns(top.score, turn))}%`;
+  els.evalScore.textContent = formatScore(top.score, turn);
+}
+
+function paintLineTexts(lines, turn, plies, fen) {
+  const items = [...lines].sort((a, b) => a.multipv - b.multipv);
+  els.evalLines.replaceChildren(
+    ...items.map((info) => {
+      const li = document.createElement('li');
+      li.className = 'eval-line';
+      const score = document.createElement('span');
+      score.className = 'eval-line-score';
+      score.textContent = formatScore(info.score, turn);
+      const moves = document.createElement('span');
+      moves.className = 'eval-line-moves';
+      moves.textContent = formatLine(pvToSan(new Chess(fen), info.pv), plies);
+      li.append(score, moves);
+      return li;
+    }),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -834,7 +1042,7 @@ function renderAll() {
   const live = !reviewing();
   // The board shows the position being reviewed; everything that describes the
   // game as it stands — the player cards, the clocks, the result — stays live.
-  const shown = live ? game : positionAt(plies);
+  const shown = shownPosition(plies);
   const liveStatus = game.status();
   const shownStatus = live ? liveStatus : shown.status();
   const shownLast = shown.lastMove();
@@ -853,6 +1061,7 @@ function renderAll() {
   renderCaptures(plies);
   renderMoves(plies);
   renderReviewBar(plies);
+  renderAnalysis(plies, shown);
   renderBanner();
   announceState(liveStatus, game.lastMove());
 
@@ -1071,6 +1280,15 @@ function renderReviewBar(plies) {
   els.reviewLastBtn.disabled = plies >= total;
   els.pgnCopyBtn.disabled = total === 0;
   els.pgnDownloadBtn.disabled = total === 0;
+  // An engine is a coach, and a coach has no business at the board while
+  // somebody is waiting for their turn in an online game. Turning analysis
+  // off here, rather than only refusing the click, also closes the worker, so
+  // no search is left running against a position a person is still thinking
+  // about.
+  const analysable = analysisAllowed();
+  els.analysisBtn.disabled = !analysable;
+  els.analysisBtn.title = analysable ? ANALYSIS_TITLE : ANALYSIS_BLOCKED_TITLE;
+  if (!analysable && analyzing) setAnalysis(false);
   keepReviewFocus(focused);
   if (!reviewing()) {
     els.reviewNote.textContent = '';
@@ -2456,6 +2674,7 @@ els.reviewFirstBtn.addEventListener('click', () => goToPly(0));
 els.reviewPrevBtn.addEventListener('click', () => goToPly(viewPlies() - 1));
 els.reviewNextBtn.addEventListener('click', () => goToPly(viewPlies() + 1));
 els.reviewLastBtn.addEventListener('click', () => goToPly(game.history().length));
+els.analysisBtn.addEventListener('click', () => setAnalysis(!analyzing));
 
 // The move list is rebuilt on every render, so the click lands on the list.
 els.moveList.addEventListener('click', (e) => {
