@@ -57,3 +57,58 @@ describe('SAN notation', () => {
     expect(game.history().map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3']);
   });
 });
+
+describe('playing a move written down elsewhere', () => {
+  // The string form is how a room's event list reaches the board (net/room.js):
+  // the server has the move in SAN and nothing else.
+  it('plays plain SAN, and hands back the verbose move', () => {
+    const game = new Chess();
+    const played = game.move('e4');
+    expect(played).toMatchObject({ from: 'e2', to: 'e4', san: 'e4' });
+    expect(game.get('e2')).toBe(null);
+    expect(game.get('e4')).toBe('P');
+    expect(game.turn()).toBe('b');
+  });
+
+  it('plays the awkward ones: a capture, a castle, a promotion, a mate', () => {
+    const game = new Chess();
+    for (const san of ['e4', 'd5', 'exd5', 'Nf6', 'Nc3', 'Nxd5', 'Nxd5', 'Qxd5']) {
+      expect(game.move(san), san).not.toBe(null);
+    }
+    const castles = new Chess('r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1');
+    expect(castles.move('O-O').flags).toBe('k');
+    expect(castles.move('O-O-O').flags).toBe('q');
+
+    const promotes = new Chess('3r3k/4P3/8/8/8/8/8/4K3 w - - 0 1');
+    expect(promotes.move('exd8=Q+').promotion).toBe('q');
+
+    const mate = new Chess('7k/5ppp/8/8/8/8/8/R5K1 w - - 0 1');
+    expect(mate.move('Ra8#').san).toBe('Ra8#');
+  });
+
+  it('refuses the string it would not itself have written', () => {
+    // The check mark is part of the notation, not decoration: the same move
+    // without it is a different string, and one side's engine never sends the
+    // other a choice of spellings.
+    const game = new Chess('k7/8/8/8/8/8/1R6/K7 w - - 0 1');
+    expect(game.move('Rb8')).toBe(null);
+    expect(game.move('Rb8+')).not.toBe(null);
+    expect(game.turn()).toBe('b');
+  });
+
+  it('refuses what was never a move at all', () => {
+    const game = new Chess();
+    expect(game.move('rb8+')).toBe(null); // case carries the piece
+    expect(game.move('e5')).toBe(null); // not legal from here
+    expect(game.move('')).toBe(null);
+    expect(game.move('nonsense')).toBe(null);
+    expect(game.history()).toEqual([]);
+  });
+
+  it('replays a whole game the way a poll returns one', () => {
+    const sans = ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6', 'cxd5', 'exd5', 'Bg5', 'Be7'];
+    const game = new Chess();
+    for (const san of sans) expect(game.move(san), san).not.toBe(null);
+    expect(game.history().map((m) => m.san)).toEqual(sans);
+  });
+});

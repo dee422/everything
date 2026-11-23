@@ -7,8 +7,8 @@
  * a reload asks the server again rather than trusting localStorage.
  *
  * The markup lives in index.html next to the rest of the board's chrome, and
- * the strings are English because the board is English. Failure wording comes
- * from the error codes, never from the server's own Chinese text.
+ * the strings are Chinese because the board is Chinese. Failure wording comes
+ * from the error codes (net/auth.js), never from the server's own text.
  */
 
 import { makeAccountApi, verifyNews } from '../net/auth.js';
@@ -16,19 +16,24 @@ import { makeAccountApi, verifyNews } from '../net/auth.js';
 const $ = (id) => document.getElementById(id);
 
 const TITLES = {
-  signin: 'Sign in',
-  signup: 'Create account',
-  account: 'Your account',
+  signin: '登录',
+  signup: '注册',
+  account: '我的账号',
 };
 
 /**
- * Wire the panel to the board's chrome. `showToast` is the board's own
- * transient notice, so signing in and capturing a piece tell the player the
- * same way.
+ * Wire the panel to the board's chrome.
  *
- * @param {{showToast(text: string): void}} deps
+ * @param {{
+ *   showToast(text: string): void,
+ *   onSignOut?(): void,  // so online play can let go of a room it cannot poll any more
+ * }} deps
+ * @returns {{open(which?: 'signin'|'signup'|'account'): void}} how the rest of
+ *   the board opens the panel. It deliberately does not report who is signed
+ *   in: online play asks the server instead, so a click that lands before the
+ *   first reply arrives cannot be talked out of the game it is entitled to.
  */
-export function mountAccount({ showToast }) {
+export function mountAccount({ showToast, onSignOut = () => {} }) {
   const api = makeAccountApi();
 
   const el = {
@@ -76,7 +81,7 @@ export function mountAccount({ showToast }) {
   }
 
   function paint() {
-    el.chipLabel.textContent = player ? player.nickname : 'Sign in';
+    el.chipLabel.textContent = player ? player.nickname : '登录';
     el.flag.hidden = !player || player.verified;
     el.verifyCard.classList.toggle('hidden', !player || player.verified);
     if (player) el.verifyEmail.textContent = player.email;
@@ -84,8 +89,8 @@ export function mountAccount({ showToast }) {
     el.mail.textContent = player?.email ?? '';
     el.stateLine.textContent = player
       ? player.verified
-        ? 'Email confirmed.'
-        : 'Not confirmed yet — check your inbox.'
+        ? '邮箱已确认。'
+        : '还没确认 —— 请收一下邮件。'
       : '';
     el.stateLine.classList.toggle('confirmed', !!player?.verified);
   }
@@ -108,11 +113,22 @@ export function mountAccount({ showToast }) {
     showError(el.verifyError, '');
   }
 
-  function openDialog() {
-    showPane(player ? 'account' : 'signin');
+  const FIRST_INPUT = {
+    signin: () => el.signinEmail,
+    signup: () => el.signupNickname,
+    account: () => el.closeBtn,
+  };
+
+  /**
+   * @param {'signin'|'signup'|'account'} [which] where to start; by default the
+   *   pane a player of this account would want. Online play asks for one, since
+   *   it is the panel's other reason for existing.
+   */
+  function openDialog(which) {
+    const pane = which ?? (player ? 'account' : 'signin');
+    showPane(pane);
     el.dialog.showModal();
-    const first = player ? el.closeBtn : el.signinEmail;
-    first.focus();
+    FIRST_INPUT[pane]().focus();
   }
 
   /**
@@ -126,7 +142,7 @@ export function mountAccount({ showToast }) {
     const reply = await request.catch(() => ({
       ok: false,
       code: 'network',
-      message: 'Could not reach the server. Check your connection and try again.',
+      message: '连不上服务器。请检查网络后再试。',
     }));
     setBusy(false);
     onReply(reply);
@@ -137,7 +153,7 @@ export function mountAccount({ showToast }) {
     paint();
     el.signinPassword.value = '';
     el.dialog.close();
-    showToast(`Signed in as ${player?.nickname ?? 'you'}.`);
+    showToast(`已登录为 ${player?.nickname ?? '你'}。`);
   }
 
   /**
@@ -151,7 +167,7 @@ export function mountAccount({ showToast }) {
     });
   }
 
-  el.chip.addEventListener('click', openDialog);
+  el.chip.addEventListener('click', () => openDialog());
   el.closeBtn.addEventListener('click', () => el.dialog.close());
 
   for (const button of el.tabs.querySelectorAll('button')) {
@@ -190,7 +206,7 @@ export function mountAccount({ showToast }) {
           // Either the address was taken or it was not — the API says the same
           // thing either way so nobody can use this form to look up a class.
           el.dialog.close();
-          showToast('Done. If that address is new, a confirmation email is on its way.');
+          showToast('好了。如果这个邮箱是新注册的，确认邮件已经在路上。');
           return;
         }
         player = reply.player ?? null;
@@ -198,9 +214,9 @@ export function mountAccount({ showToast }) {
         el.signupPassword.value = '';
         el.dialog.close();
         if (reply.mail_sent === false) {
-          showError(el.verifyError, 'The confirmation email did not go out. Press Resend email.');
+          showError(el.verifyError, '确认邮件没能发出去。请按「重发邮件」。');
         }
-        showToast('Account created. Pick a clock and play.');
+        showToast('账号建好了。选一个时限就能开局。');
       },
     );
   });
@@ -211,7 +227,8 @@ export function mountAccount({ showToast }) {
       paint();
       el.dialog.close();
       showPane('signin');
-      showToast('Signed out.');
+      onSignOut();
+      showToast('已退出登录。');
     });
   });
 
@@ -220,15 +237,15 @@ export function mountAccount({ showToast }) {
     run(api.resend(), (reply) => {
       if (!reply.ok) {
         if (reply.code === 'sign_in_required') refresh();
-        showError(el.verifyError, reply.message ?? problemText(reply));
+        showError(el.verifyError, reply.message);
         return;
       }
       if (reply.verified) {
         refresh();
-        showToast('That email is already confirmed.');
+        showToast('这个邮箱之前已经确认过了。');
         return;
       }
-      showToast('Confirmation email sent — check the junk folder too.');
+      showToast('确认邮件已发出 —— 垃圾箱也看一眼。');
     });
   });
 
@@ -248,6 +265,8 @@ export function mountAccount({ showToast }) {
     showToast(news.text);
   }
 
-  paint(); // the chip says "Sign in" until the server answers
+  paint(); // the chip says 登录 until the server answers
   refresh();
+
+  return { player: () => player, open: (which) => openDialog(which) };
 }

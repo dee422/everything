@@ -15,19 +15,20 @@ export const LOW_TIME_MS = 20000;
 
 /**
  * Offered time controls, in menu order. `initial` of 0 means no clock at all.
- * Ids cross the wire between peers and land in saved games, so treat them as
- * a stable format: add ids rather than renaming them.
+ * Ids land in saved games, so treat them as a stable format: add ids rather
+ * than renaming them. Only the labels are the board's language — the ids and
+ * the `1 + 0` readings are the same wherever they are written down.
  */
 export const TIME_CONTROLS = [
-  { id: 'unlimited', label: 'No limit', initial: 0, increment: 0, group: null },
-  { id: '1+0', label: '1 + 0', initial: 60000, increment: 0, group: 'Bullet' },
-  { id: '2+1', label: '2 + 1', initial: 120000, increment: 1000, group: 'Bullet' },
-  { id: '3+0', label: '3 + 0', initial: 180000, increment: 0, group: 'Blitz' },
-  { id: '3+2', label: '3 + 2', initial: 180000, increment: 2000, group: 'Blitz' },
-  { id: '5+0', label: '5 + 0', initial: 300000, increment: 0, group: 'Blitz' },
-  { id: '5+3', label: '5 + 3', initial: 300000, increment: 3000, group: 'Blitz' },
-  { id: '10+0', label: '10 + 0', initial: 600000, increment: 0, group: 'Rapid' },
-  { id: '15+10', label: '15 + 10', initial: 900000, increment: 10000, group: 'Rapid' },
+  { id: 'unlimited', label: '不限时', initial: 0, increment: 0, group: null },
+  { id: '1+0', label: '1 + 0', initial: 60000, increment: 0, group: '子弹' },
+  { id: '2+1', label: '2 + 1', initial: 120000, increment: 1000, group: '子弹' },
+  { id: '3+0', label: '3 + 0', initial: 180000, increment: 0, group: '闪电' },
+  { id: '3+2', label: '3 + 2', initial: 180000, increment: 2000, group: '闪电' },
+  { id: '5+0', label: '5 + 0', initial: 300000, increment: 0, group: '闪电' },
+  { id: '5+3', label: '5 + 3', initial: 300000, increment: 3000, group: '闪电' },
+  { id: '10+0', label: '10 + 0', initial: 600000, increment: 0, group: '快速' },
+  { id: '15+10', label: '15 + 10', initial: 900000, increment: 10000, group: '快速' },
 ];
 
 export const DEFAULT_TIME_ID = 'unlimited';
@@ -43,6 +44,18 @@ export function timeControl(id) {
 /** Is `id` one of the offered controls (including "unlimited")? */
 export function isTimeId(id) {
   return BY_ID.has(id);
+}
+
+/**
+ * A clock for a room game. The server keeps one base time per side and no
+ * increment, so an online game runs on whatever its room's `time_ms` says
+ * rather than on a menu entry: "3 + 2" on the picker becomes 3 minutes flat
+ * once it crosses the wire. The id is the seconds form (`"180+0"`), which is
+ * what the PGN header and the analytics event both read.
+ */
+export function roomControl(timeMs) {
+  const initial = Math.floor(Number(timeMs) || 0);
+  return initial > 0 ? { id: `${Math.round(initial / 1000)}+0`, initial, increment: 0 } : null;
 }
 
 /**
@@ -66,16 +79,16 @@ export function speakClock(ms) {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   const parts = [];
-  if (minutes) parts.push(`${minutes} minute${minutes === 1 ? '' : 's'}`);
-  if (rest || !minutes) parts.push(`${rest} second${rest === 1 ? '' : 's'}`);
-  return parts.join(' ');
+  if (minutes) parts.push(`${minutes}分钟`);
+  if (rest || !minutes) parts.push(`${rest}秒`);
+  return parts.join('');
 }
 
 export class Clock {
   /**
    * @param {{initial: number, increment: number}|null} control null (or a
    *   control with no initial time) makes a disabled clock: every reading is
-   *   Infinity and nothing ever flags, which is how "No limit" games run.
+   *   Infinity and nothing ever flags, which is how an 不限时 game runs.
    * @param {() => number} now injectable monotonic clock, for tests
    */
   constructor(control = null, now = () => performance.now()) {

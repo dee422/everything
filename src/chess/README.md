@@ -8,18 +8,19 @@ Play chess against the computer or a friend. No frameworks — just vanilla Java
 
 - **Player vs. Computer** with three difficulty levels (Easy / Medium / Hard)
 - **Pass & Play** — two players sharing one device
-- **Online play** — private peer-to-peer games over the
-  [Puter Peer API](https://docs.puter.com/Peer/) (WebRTC): create a game,
-  share the invite code or link, and play with resign and rematch support.
-  The Puter SDK is loaded only when online mode is opened; once it has, the
-  top bar shows Puter's account menu (sign in and out, and the Apps launcher
-  on puter.com).
+- **Online play** — a game with a friend through the room API on this site
+  (`/api/v1/chess_room_*.php`): create a game, send the code or the link, and
+  the board asks for what it missed every few seconds. Both players sign in
+  with an ichessgeek account and confirm its email first. The server is the
+  referee — it holds the position, judges every move against its own engine,
+  and keeps both clocks — so a tab that drops out comes back to the truth
+  rather than to whatever it last saw.
 - **Chess clocks** — Bullet, Blitz, and Rapid time controls with a Fischer
   increment, or no limit at all. The clock starts with the first move, so a
   board nobody has touched yet costs nothing. Running out of time loses the
   game, unless the opponent has no way to mate, which draws it (FIDE 6.9). In an
-  online game the host picks the control and each side sends its own clock with
-  every move, so neither drifts.
+  online game the player who opens it picks the control, and the server's
+  reading of both clocks corrects each side as the moves arrive.
 - **Games survive a reload** — a game in progress against the computer or in
   pass & play is stored as you play and picked up where you left off, clocks
   included. The clock does not run while the page is closed.

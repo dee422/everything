@@ -93,10 +93,16 @@ const PST = {
   ],
 };
 
+/**
+ * Search settings per difficulty. The keys are what settings and analytics
+ * store, so treat them as stable; `label` is only ever shown to a player (the
+ * level caption on the computer's card) and must match the picker in
+ * index.html.
+ */
 export const LEVELS = {
-  easy: { depth: 1, window: 150, quiescence: false, label: 'Easy' },
-  medium: { depth: 2, window: 40, quiescence: true, label: 'Medium' },
-  hard: { depth: 3, window: 0, quiescence: true, label: 'Hard' },
+  easy: { depth: 1, window: 150, quiescence: false, label: '入门' },
+  medium: { depth: 2, window: 40, quiescence: true, label: '中级' },
+  hard: { depth: 3, window: 0, quiescence: true, label: '高级' },
 };
 
 /** Manhattan distance from the middle of the board: 0 centrally, 6 in a corner. */

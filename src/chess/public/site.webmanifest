@@ -1,7 +1,7 @@
 {
-  "name": "Chess — Play Online",
-  "short_name": "Chess",
-  "description": "Play chess for free. Challenge the computer at three levels, or pass & play with a friend on one device.",
+  "name": "国际象棋 —— 在线对弈",
+  "short_name": "国际象棋",
+  "description": "浏览器里免费下国际象棋。三个难度和电脑对弈、同屏对弈，也可以报个房间码和朋友在线对弈。",
   "start_url": ".",
   "display": "standalone",
   "theme_color": "#f4f5f9",

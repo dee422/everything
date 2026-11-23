@@ -82,15 +82,15 @@ describe('what comes back', () => {
     const api = makeAccountApi({ fetchImpl: fn });
     const reply = await api.signIn('a@b.co', 'nope');
     expect(reply.ok).toBe(false);
-    expect(reply.message).toBe('Email or password is not right.');
+    expect(reply.message).toBe('邮箱或密码不对。');
   });
 
-  it('does not paste the server’s own wording into an English panel', async () => {
-    const { fn } = recordingFetch({ ok: false, code: 'no_such_code', error: '请先登录' }, 400);
+  it('says its own sentence for a code it does not know', async () => {
+    const { fn } = recordingFetch({ ok: false, code: 'no_such_code', error: '请勿重复提交' }, 400);
     const api = makeAccountApi({ fetchImpl: fn });
     const reply = await api.signIn('a@b.co', 'pw');
-    expect(reply.error).toBe('请先登录'); // the raw field is still there…
-    expect(reply.message).toBe('Something went wrong. Please try again.'); // …but not shown
+    expect(reply.error).toBe('请勿重复提交'); // the raw field is still there…
+    expect(reply.message).toBe('出了点问题，请再试一次。'); // …but not shown
   });
 
   it('says the network failed when nothing answered', async () => {
@@ -99,7 +99,7 @@ describe('what comes back', () => {
     expect(reply).toEqual({
       ok: false,
       code: 'network',
-      message: 'Could not reach the server. Check your connection and try again.',
+      message: '连不上服务器。请检查网络后再试。',
     });
   });
 
@@ -135,19 +135,25 @@ describe('problemText', () => {
       'no_such_player', 'too_many_logins', 'too_many_registrations', 'too_many_sends',
       'mail_failed', 'bad_credentials', 'missing_fields', 'bad_email', 'short_nickname',
       'short_password', 'long_password', 'weak_password', 'verify_failed',
+      'verify_required', 'bad_room_code', 'no_such_room', 'room_full',
+      'room_not_active', 'room_over', 'not_room_member', 'not_your_turn',
+      'illegal_move', 'flagged', 'stale_move', 'bad_room_time', 'bad_room_color',
+      'too_many_rooms', 'too_many_joins',
     ];
     // Every code but 'server' has to say something the fallback does not,
     // because 'server' is exactly what the fallback says.
     for (const code of codes.filter((code) => code !== 'server')) {
       expect(problemText({ code })).not.toBe(problemText({}));
     }
+    // A letter or a digit, not \w: the sentences are Chinese, which \w does not
+    // see, and an accidentally empty one is exactly what this looks for.
     for (const code of codes) {
-      expect(problemText({ code })).toMatch(/\w/);
+      expect(problemText({ code })).toMatch(/[\p{L}\p{N}]/u);
     }
   });
 
   it('falls back without a code', () => {
-    expect(problemText(undefined)).toBe('Something went wrong. Please try again.');
+    expect(problemText(undefined)).toBe('出了点问题，请再试一次。');
   });
 });
 
@@ -156,7 +162,7 @@ describe('verifyNews', () => {
     expect(verifyNews('?verify=ok').verified).toBe(true);
     expect(verifyNews('?verify=already').verified).toBe(true);
     expect(verifyNews('?verify=expired').verified).toBe(false);
-    expect(verifyNews('?verify=bad').text).toBe('That link is not one of ours.');
+    expect(verifyNews('?verify=bad').text).toBe('那个链接不是我们发出来的。');
   });
 
   it('has nothing to say about a plain visit', () => {

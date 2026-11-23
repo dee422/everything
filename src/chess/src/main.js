@@ -22,7 +22,6 @@ import {
   Check,
   Link,
   LogOut,
-  RotateCcw,
   ChevronFirst,
   ChevronLeft,
   ChevronRight,
@@ -34,13 +33,8 @@ import {
 import { Chess, colorOf } from './engine/chess.js';
 import { chooseMove, LEVELS } from './engine/ai.js';
 import { BoardView, pieceUrl, pieceLabel } from './ui/boardView.js';
-import { OnlineSession, loadPuter, whenPuterLoaded } from './net/online.js';
-import {
-  USER_MENU_TAG,
-  inUserMenu,
-  mountUserMenu,
-  setUserMenuTheme,
-} from './ui/userMenu.js';
+import { RoomGame, normalizeCode, POLL_MS, ROOM_MAX_TIME_MS } from './net/room.js';
+import { problemText } from './net/auth.js';
 import { mountAccount } from './ui/account.js';
 import {
   Clock,
@@ -49,6 +43,7 @@ import {
   TIME_CONTROLS,
   formatClock,
   isTimeId,
+  roomControl,
   speakClock,
   timeControl,
 } from './game/clock.js';
@@ -74,7 +69,6 @@ createIcons({
     Check,
     Link,
     LogOut,
-    RotateCcw,
     ChevronFirst,
     ChevronLeft,
     ChevronRight,
@@ -89,7 +83,6 @@ const $ = (id) => document.getElementById(id);
 const els = {
   board: $('board'),
   resultBanner: $('result-banner'),
-  topbarRight: document.querySelector('.topbar-right'),
   topbarNote: $('topbar-note'),
   modeButtons: document.querySelectorAll('.mode-switch [data-mode]'),
   cardTop: $('card-top'),
@@ -130,8 +123,6 @@ const els = {
   buttonRow: $('button-row'),
   newGameBtn: $('new-game-btn'),
   undoBtn: $('undo-btn'),
-  rematchBtn: $('rematch-btn'),
-  rematchLabel: $('rematch-label'),
   resignBtn: $('resign-btn'),
   leaveBtn: $('leave-btn'),
   controlsHint: $('controls-hint'),
@@ -168,10 +159,6 @@ const els = {
   confirmSub: $('confirm-sub'),
   confirmYes: $('confirm-yes'),
   confirmNo: $('confirm-no'),
-  rematchDialog: $('rematch-dialog'),
-  rematchSub: $('rematch-sub'),
-  rematchAccept: $('rematch-accept'),
-  rematchDecline: $('rematch-decline'),
   accountDialog: $('account-dialog'),
   themeButtons: document.querySelectorAll('.theme-toggle [data-theme-choice]'),
 };
@@ -179,26 +166,14 @@ const els = {
 const SETTINGS_KEY = 'chess-settings';
 // Display values for material difference (knight/bishop both count as 3).
 const DISPLAY_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
-// Online play is wired up in src/net/online.js but reaches no player here: the
-// mode button is absent from index.html, so 'online' is not a mode this build
-// can enter, and nothing loads the Puter SDK.
-const MODES = ['computer', 'local'];
-const MODE_NOTES = {
-  computer: 'Player vs. Computer',
-  local: 'Pass & Play',
-  online: 'Online Match',
-};
-/** How the mode switch names each mode. */
-const MODE_LABELS = { computer: 'Computer', local: 'Pass & Play', online: 'Online' };
+// Online play is the room API (src/net/room.js): the server holds the position
+// and the clocks, and this board asks it what it has missed every few seconds.
+const MODES = ['computer', 'local', 'online'];
+/** What each mode is called: the top bar note, the player cards, and the
+ *  switch's confirm dialog. The buttons in index.html carry the short form. */
+const MODE_LABELS = { computer: '电脑对弈', local: '同屏对弈', online: '在线对弈' };
 /** Clock repaint rate. Tenths are shown when the time is low; this reads them. */
 const CLOCK_TICK_MS = 100;
-/**
- * How long an opponent's empty clock has to stay empty before this side claims
- * the win. Our copy of their clock runs one network hop ahead of theirs, and a
- * backgrounded tab can hold their move in the queue past the moment they made
- * it, so a flag is never claimed on the instant it appears.
- */
-const FLAG_GRACE_MS = 2500;
 /** Shared by every board render that has nothing to highlight. */
 const NO_TARGETS = new Map();
 
@@ -229,7 +204,6 @@ let announcedPlies = 0;
 let clock = new Clock(null);
 let clockTimer = 0;
 let clockStack = [];
-let flagSeenAt = 0; // when an opponent's clock was first seen empty
 let lowAnnounced = { w: false, b: false }; // said "time is low" this game
 
 // Reviewing an earlier position. null means the board shows the live game;
@@ -245,23 +219,30 @@ let hasSave = true;
 // position the player has given it.
 let movesShown = { plies: -1, total: -1 };
 
-// Online play.
-let session = null; // OnlineSession while hosting/joining/playing
-let userMenu = null; // the SDK's <puter-user-menu>, once it is in the top bar
+// Online play. `roomGame` holds the room and the cursor over its event list
+// (net/room.js); the rest of this is the board's side of that conversation —
+// which state the chrome shows, and which of the server's moves are already on
+// the screen.
 let onlineUiState = 'idle'; // 'idle'|'creating'|'hosting'|'joining'|'playing'|'ended'
 let onlineReturnState = 'idle'; // where a failed create/join falls back to
-let opponentName = null; // kept after the session ends for result text
-let manualEnd = null; // {kind,title,sub} for ends the engine can't see (resign, abandon)
-let rematchOffered = false; // we offered a rematch and await the reply
-let rematchAnswered = false; // guards the incoming-offer dialog's close event
+let onlineEnd = null; // the verdict, in the referee's own words
+let roomRole = null; // 'host' (we made the room) | 'guest' (we joined one)
+let roomTimer = 0; // the interval that asks the server what we have missed
+let appliedSeq = 0; // the last event the board is showing
+let sentSan = null; // our move, on its way to the referee and not yet taken
+let requestOut = false; // one call at a time: a slow host must not pile them up
+let rebuilding = false; // the board is being replayed from the server's move list
+let flagPollDone = false; // asked once already after a displayed clock hit zero
+let manualEnd = null; // {kind,title,sub} for ends the engine can't see (a flag fall)
 let confirmAction = null;
 let toastTimer = 0;
 let copyCodeTimer = 0;
 let copyLinkTimer = 0;
 
-const colorName = (color) => (color === 'w' ? 'White' : 'Black');
+const colorName = (color) => (color === 'w' ? '白方' : '黑方');
+/** The color as it goes into 执白 / 执黑, which is how a player says it. */
+const side = (color) => (color === 'w' ? '白' : '黑');
 const otherColor = (color) => (color === 'w' ? 'b' : 'w');
-const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 /** The PGN result for a game `winner` won. */
 const resultFor = (winner) => (winner === 'w' ? '1-0' : '0-1');
 
@@ -271,7 +252,7 @@ function bottomColor() {
 }
 
 function gameFinished() {
-  return !!manualEnd || game.isGameOver();
+  return currentEnd() !== null;
 }
 
 /**
@@ -285,28 +266,37 @@ function gameInProgress() {
   return game.history().length > 0;
 }
 
+/**
+ * The nickname of whoever holds `color`, as the room's row carries it, or null
+ * while that seat is still empty.
+ */
+function seatName(color) {
+  return roomGame.room?.players?.[color]?.nickname ?? null;
+}
+
 function opponentLabel() {
-  return opponentName || 'Your friend';
+  return seatName(otherColor(myColor)) || '对方';
 }
 
 /**
- * How to name the player of `color` inside a sentence. Lower case, so callers
- * can place it mid-sentence and capitalize it when it comes first.
+ * How to name whoever plays `color`, in a sentence the player reads about
+ * themselves. English needed a lower-case mid-sentence form and a capitalized
+ * one; Chinese has no case, so this serves wherever the name lands.
  */
 function sideName(color) {
   if (mode === 'local') return colorName(color);
-  if (color === myColor) return 'you';
-  return mode === 'computer' ? 'the computer' : opponentLabel();
+  if (color === myColor) return '你';
+  return mode === 'computer' ? '电脑' : opponentLabel();
 }
 
 /* ------------------------------------------------------------------ */
 /* Analytics                                                           */
 /*                                                                     */
-/* Five events, each standing for something a player actually got out  */
+/* Four events, each standing for something a player actually got out  */
 /* of the app: a game played, a game seen through to its end, an       */
-/* invite made, a friend actually reaching the board, and a rematch.   */
-/* Both flags reset with the board, so undo and repeated game-over     */
-/* renders cannot double-count.                                        */
+/* invite made, and a friend actually reaching the board. Both flags   */
+/* reset with the board, so undo and repeated game-over renders cannot */
+/* double-count.                                                       */
 /* ------------------------------------------------------------------ */
 
 let startTracked = false;
@@ -376,7 +366,7 @@ function saveSettings() {
 
 /**
  * Fill the clock picker from TIME_CONTROLS, grouped the way the menu reads
- * (Bullet / Blitz / Rapid). Building it here rather than in the markup keeps
+ * (子弹 / 闪电 / 快速). Building it here rather than in the markup keeps
  * the ids that cross the wire and land in saved games in one place.
  */
 function buildTimeOptions() {
@@ -423,7 +413,6 @@ function applyTheme() {
     button.classList.toggle('selected', active);
     button.setAttribute('aria-pressed', String(active));
   }
-  setUserMenuTheme(userMenu, themeSetting);
 }
 
 systemDark.addEventListener('change', () => {
@@ -444,29 +433,42 @@ function gameTimeId() {
   return clock.control ? clock.control.id : DEFAULT_TIME_ID;
 }
 
-/** Put a fresh clock on the board. */
-function resetClock(id) {
-  clock = new Clock(timeControl(id));
+/** Put a fresh clock on the board. Takes a control, not an id, because an
+ *  online game's control is built from the room's own number of milliseconds. */
+function resetClock(control) {
+  clock = new Clock(control);
   clockStack = [];
-  flagSeenAt = 0;
   lowAnnounced = { w: false, b: false };
 }
 
-/** Is either side on the clock right now? */
+/**
+ * Whose move the clocks and the player cards should follow: the referee's while
+ * an online game is on the board (our own guess is not the state of the game),
+ * the engine's own reading everywhere else.
+ */
+function turnNow() {
+  if (mode === 'online' && roomGame.room) return roomGame.room.turn;
+  return game.turn();
+}
+
 function clockLive() {
   if (gameFinished()) return false;
+  if (mode === 'online') {
+    // The referee starts the clock the moment the second player sits down, so
+    // an online game is timed from the first snapshot rather than from the
+    // first move — and the time it charges is the server's, not ours.
+    return onlineUiState === 'playing';
+  }
   // The clock starts with the first move. Nothing else marks the moment a game
   // is under way — the board is simply there, and picking a control or opening
   // the tab is not the same as sitting down to play — so charging the first
   // mover before a piece has moved would run a clock down while nobody is
   // playing, and could lose a game on time that was never started.
-  if (game.history().length === 0) return false;
-  if (mode === 'online') return onlineUiState === 'playing' && !!session?.connected;
-  return true;
+  return game.history().length > 0;
 }
 
 function syncClock() {
-  clock.setRunning(clockLive() ? game.turn() : null);
+  clock.setRunning(clockLive() ? turnNow() : null);
   if (clock.running) startClockTimer();
   else stopClockTimer();
 }
@@ -485,15 +487,17 @@ function onClockTick() {
   announceLowTime();
   const flagged = clock.flagged();
   if (!flagged) {
-    flagSeenAt = 0;
+    flagPollDone = false;
     return;
   }
-  if (mode === 'online' && flagged !== myColor) {
-    if (!flagSeenAt) {
-      flagSeenAt = performance.now();
-      return;
-    }
-    if (performance.now() - flagSeenAt < FLAG_GRACE_MS) return;
+  if (mode === 'online') {
+    // A clock that reads zero on this screen is only an estimate — the referee
+    // has the time that counts. Ask it once, and ask again only if the number
+    // comes back above zero (its clock started from a later moment than ours).
+    if (flagPollDone) return;
+    flagPollDone = true;
+    pollRoom();
+    return;
   }
   handleFlagFall(flagged);
 }
@@ -511,22 +515,43 @@ function announceLowTime() {
   // follows announces itself.
   if (ms <= 0 || ms >= LOW_TIME_MS) return;
   lowAnnounced[running] = true;
-  els.srStatus.textContent =
-    mode !== 'local' && running === myColor
-      ? `Your time is low — ${speakClock(ms)} left.`
-      : `${cap(sideName(running))} is low on time — ${speakClock(ms)} left.`;
+  els.srStatus.textContent = `${sideName(running)}的时间快用完了 —— 还剩${speakClock(ms)}。`;
 }
 
 function handleFlagFall(loser) {
   if (gameFinished()) return;
-  flagSeenAt = 0;
   clock.setRunning(null);
   stopClockTimer();
   // A search still running would otherwise land a move after the flag fell.
   aiToken++;
   thinking = false;
-  if (mode === 'online') session?.sendFlag(loser);
   endGameManually(describeTimeout(loser));
+}
+
+/**
+ * End the game for a reason the engine cannot see: a flag fall here, a
+ * resignation there. An online game's end never comes this way — the referee
+ * has already written it down, and `endFromRoom` puts it on the board.
+ */
+function endGameManually(end) {
+  manualEnd = end;
+  revealEnd(end);
+}
+
+/**
+ * Say that the game is over, whatever decided it. The dialog comes a moment
+ * later than the board (see showEnd) so the last move is still visible when the
+ * player looks back at it.
+ */
+function revealEnd(end) {
+  finishPromotion(null);
+  clearSelection();
+  // A confirm dialog opened before the game ended — our own pending resign,
+  // say — is stale now, and acting on it could overwrite this result.
+  closeDialogs();
+  els.srStatus.textContent = `${end.title} —— ${end.sub}`;
+  renderAll();
+  showEnd(end);
 }
 
 /**
@@ -542,17 +567,17 @@ function describeTimeout(loser) {
       ...base,
       kind: 'draw',
       result: '1/2-1/2',
-      title: 'Draw',
-      sub: `${cap(sideName(loser))} ran out of time, but ${sideName(winner)} cannot checkmate.`,
+      title: '和棋',
+      sub: `${sideName(loser)}的钟走完了，可${sideName(winner)}没法将死。`,
     };
   }
-  const sub = `${cap(sideName(loser))} ran out of time.`;
+  const sub = `${sideName(loser)}的钟走完了。`;
   if (mode === 'local') {
     return {
       ...base,
       kind: 'win',
       result: resultFor(winner),
-      title: `${colorName(winner)} wins`,
+      title: `${colorName(winner)}获胜`,
       sub,
     };
   }
@@ -560,7 +585,7 @@ function describeTimeout(loser) {
     ...base,
     kind: loser === myColor ? 'loss' : 'win',
     result: resultFor(winner),
-    title: loser === myColor ? 'You lose' : 'You win',
+    title: loser === myColor ? '你输了' : '你赢了',
     sub,
   };
 }
@@ -568,34 +593,19 @@ function describeTimeout(loser) {
 /**
  * Move the clock on after `mover` played: remember where it stood so undo can
  * put it back, charge the time they spent, add the increment, and hand over.
- * Returns the mover's remaining ms — what an online peer needs to hear.
+ * Only for games this board keeps time for — an online game's clocks are the
+ * server's, and are put on the board whole by applyRoomClock().
  */
 function afterPlyApplied(move) {
   clockStack.push(clock.baseline());
-  let left = null;
   if (clock.enabled) {
     clock.setRunning(null); // charges the mover for the time they just spent
     if (clock.remaining(move.color) > 0) clock.addIncrement(move.color);
     // Hand over now rather than after the move animation, or every move would
     // hand the other side a few free tenths of a second.
     syncClock();
-    left = clock.remaining(move.color);
   }
   trackGameStart();
-  return left;
-}
-
-/**
- * Take the opponent's word for their own clock, within reason: their reading
- * is exact where ours only estimated it while they were thinking, but a number
- * above anything the time control could have handed them is capped. They can
- * only ever have their starting time plus one increment per move they made.
- */
-function applyRemoteClock(color, ms) {
-  if (!clock.enabled || typeof ms !== 'number') return;
-  const { initial, increment } = clock.control;
-  const theirMoves = game.history().reduce((n, m) => n + (m.color === color ? 1 : 0), 0);
-  clock.set(color, Math.min(ms, initial + increment * theirMoves));
 }
 
 /* ------------------------------------------------------------------ */
@@ -656,12 +666,12 @@ function goToPly(target) {
 function announceReview() {
   const plies = viewPlies();
   if (!reviewing()) {
-    els.srStatus.textContent = 'Back to the current position.';
+    els.srStatus.textContent = '已回到最新局面。';
   } else if (plies === 0) {
-    els.srStatus.textContent = 'Starting position.';
+    els.srStatus.textContent = '开局局面。';
   } else {
     const move = game.history()[plies - 1];
-    els.srStatus.textContent = `${colorName(move.color)} played ${move.san}. Reviewing.`;
+    els.srStatus.textContent = `回看中 —— ${colorName(move.color)}走了 ${move.san}。`;
   }
 }
 
@@ -732,7 +742,7 @@ function restoreGame() {
   myColor = saved.myColor;
   manualEnd = null;
   reviewIndex = null;
-  resetClock(saved.time);
+  resetClock(timeControl(saved.time));
   if (clock.enabled && saved.clock) clock.restore(saved.clock);
   if (clock.enabled) clockStack = saved.clockStack.map((c) => ({ ...c }));
   // A stored game has moves, so it was already counted as started.
@@ -745,10 +755,10 @@ function restoreGame() {
   announcedPlies = game.history().length;
   els.srStatus.textContent =
     mode === 'local'
-      ? `Game restored. ${colorName(game.turn())} to move.`
-      : `Game restored. You play ${colorName(myColor)}.`;
+      ? `棋局已接上。${colorName(game.turn())}走。`
+      : `棋局已接上。你执${side(myColor)}。`;
   renderAll();
-  showToast('Picked up where you left off.', { onlyIfIdle: true });
+  showToast('接着上次未完的一局。', { onlyIfIdle: true });
   if (mode === 'computer' && game.turn() !== myColor) computerTurn();
   return true;
 }
@@ -782,12 +792,12 @@ function renderAll() {
   });
   els.board.classList.toggle('reviewing', !live);
 
-  renderPlayers(liveStatus);
+  renderPlayers();
   renderClocks();
   renderCaptures(plies);
   renderMoves(plies);
   renderReviewBar(plies);
-  renderBanner(liveStatus);
+  renderBanner();
   announceState(liveStatus, game.lastMove());
 
   els.undoBtn.disabled = !canUndo();
@@ -804,66 +814,61 @@ function canUndo() {
   return game.history().length > 0;
 }
 
-/** Name of the side that owns `color`, as spoken to this device's player. */
-function moverName(color) {
-  if (mode === 'local') return colorName(color);
-  if (color === myColor) return 'You';
-  return mode === 'computer' ? 'Computer' : opponentName || 'Opponent';
-}
-
 /** Tell assistive technology about moves, check, and game results. */
 function announceState(status, lastMove) {
   const plies = game.history().length;
   if (plies === announcedPlies) return;
   let text;
   if (plies < announcedPlies) {
-    text = 'Move taken back.';
+    text = '已悔棋。';
   } else {
-    text = `${moverName(lastMove.color)} played ${lastMove.san}.`;
-    if (status.over) {
-      const end = describeEnd(status);
-      text += ` ${end.title} — ${end.sub}`;
-    } else if (status.check) {
-      text += ' Check.';
-    }
+    text = `${sideName(lastMove.color)}走了 ${lastMove.san}。`;
+    // The verdict the app is standing behind, not the engine's opinion: an
+    // online game has not ended until the referee says it has, and its words
+    // are the server's. revealEnd() says it again when the end arrives without
+    // a move attached to it.
+    const end = currentEnd();
+    if (end) text += `${end.title}。${end.sub}`;
+    else if (status.check) text += '将军。';
   }
   announcedPlies = plies;
   els.srStatus.textContent = text;
 }
 
-function renderPlayers(status) {
+function renderPlayers() {
   const bottom = bottomColor();
   const top = otherColor(bottom);
-  const finished = status.over || !!manualEnd;
+  const finished = gameFinished();
+  const turn = turnNow();
 
   let topIsCpu = false;
   if (mode === 'computer') {
     topIsCpu = true;
-    els.topName.textContent = 'Computer';
+    els.topName.textContent = '电脑';
     els.topCaption.textContent = thinking
-      ? `${LEVELS[thinkingLevel].label} · thinking`
+      ? `${LEVELS[thinkingLevel].label} · 思考中`
       : LEVELS[level].label;
-    els.bottomName.textContent = 'You';
-    els.bottomCaption.textContent = `Playing ${colorName(bottom)}`;
+    els.bottomName.textContent = '你';
+    els.bottomCaption.textContent = `执${side(bottom)}`;
   } else if (mode === 'local') {
     els.topName.textContent = colorName(top);
-    els.topCaption.textContent = MODE_NOTES.local;
+    els.topCaption.textContent = MODE_LABELS.local;
     els.bottomName.textContent = colorName(bottom);
-    els.bottomCaption.textContent = MODE_NOTES.local;
+    els.bottomCaption.textContent = MODE_LABELS.local;
   } else {
-    els.topName.textContent = opponentName || 'Opponent';
-    els.topCaption.textContent = `Playing ${colorName(top)} · ${
-      session?.connected ? 'connected' : 'disconnected'
-    }`;
-    els.bottomName.textContent = 'You';
-    els.bottomCaption.textContent = `Playing ${colorName(bottom)}`;
+    // The nicknames are the room's own row, so a player sees the name they
+    // chose rather than "Opponent" — and the empty seat still has a name.
+    els.topName.textContent = seatName(top) || opponentLabel();
+    els.topCaption.textContent = `执${side(top)}`;
+    els.bottomName.textContent = seatName(bottom) || '你';
+    els.bottomCaption.textContent = `执${side(bottom)}`;
   }
   els.topIconCpu?.classList.toggle('hidden', !topIsCpu);
   els.topIconUser?.classList.toggle('hidden', topIsCpu);
 
   els.cardTop.classList.toggle('thinking', mode === 'computer' && thinking);
-  els.cardTop.classList.toggle('active', !finished && status.turn === top);
-  els.cardBottom.classList.toggle('active', !finished && status.turn === bottom);
+  els.cardTop.classList.toggle('active', !finished && turn === top);
+  els.cardBottom.classList.toggle('active', !finished && turn === bottom);
 }
 
 function renderCaptures(plies) {
@@ -928,7 +933,7 @@ function renderMoves(plies) {
       ply.dataset.ply = String(j + 1);
       ply.setAttribute(
         'aria-label',
-        `${colorName(move.color)} move ${Math.ceil((j + 1) / 2)}, ${move.san}`,
+        `${colorName(move.color)}的第 ${Math.ceil((j + 1) / 2)} 手，${move.san}`,
       );
       if (j + 1 === plies) {
         ply.classList.add('current');
@@ -1014,9 +1019,9 @@ function renderReviewBar(plies) {
   if (!reviewing()) {
     els.reviewNote.textContent = '';
   } else if (plies === 0) {
-    els.reviewNote.textContent = 'Reviewing the start';
+    els.reviewNote.textContent = '回看开局';
   } else {
-    els.reviewNote.textContent = `Reviewing ${plyLabel(plies)} ${game.history()[plies - 1].san}`;
+    els.reviewNote.textContent = `回看 ${plyLabel(plies)} ${game.history()[plies - 1].san}`;
   }
 }
 
@@ -1044,20 +1049,20 @@ function keepReviewFocus(focused) {
 /**
  * Describe a game the engine has called. `result` and `termination` are the
  * PGN spellings of the same thing, for the export; every end the app makes up
- * itself (a resignation, a flag fall, an opponent walking away) carries them
- * too, so the exporter never has to work out what happened.
+ * itself (a resignation, a flag fall) carries them too, so the exporter never
+ * has to work out what happened. An online game is not described here — the
+ * referee has already written its verdict down, in the room's own fields.
  */
 function describeEnd(status) {
   if (status.reason === 'checkmate') {
     const base = { reason: 'checkmate', result: status.result, termination: 'normal' };
     if (mode === 'local') {
-      const winner = status.result === '1-0' ? 'White' : 'Black';
-      const loser = winner === 'White' ? 'Black' : 'White';
+      const winner = status.result === '1-0' ? 'w' : 'b';
       return {
         ...base,
         kind: 'win',
-        title: `${winner} wins`,
-        sub: `Checkmate — ${loser}'s king is trapped.`,
+        title: `${colorName(winner)}获胜`,
+        sub: `将死 —— ${colorName(otherColor(winner))}的王无路可走。`,
       };
     }
     const iWon = (status.result === '1-0') === (myColor === 'w');
@@ -1065,38 +1070,39 @@ function describeEnd(status) {
       return {
         ...base,
         kind: 'win',
-        title: 'You win',
-        sub:
-          mode === 'online'
-            ? `Checkmate — ${opponentLabel()} has no escape.`
-            : 'Checkmate — the computer has no escape.',
+        title: '你赢了',
+        sub: '将死 —— 电脑的王无路可走。',
       };
     }
     return {
       ...base,
       kind: 'loss',
-      title: 'You lose',
-      sub: 'Checkmate — your king is trapped.',
+      title: '你输了',
+      sub: '将死 —— 你的王无路可走。',
     };
   }
   const reasons = {
-    stalemate: 'Stalemate — no legal moves remain.',
-    'insufficient material': 'Neither side has enough material to mate.',
-    'fifty-move rule': 'Fifty moves without a capture or pawn move.',
-    'threefold repetition': 'The same position occurred three times.',
+    stalemate: '逼和 —— 已经没有合法走法。',
+    'insufficient material': '双方的棋子都不够将死。',
+    'fifty-move rule': '连续五十步没有吃子、没有动兵。',
+    'threefold repetition': '同一局面出现了三次。',
   };
   return {
     kind: 'draw',
     reason: status.reason,
     result: status.result,
     termination: 'normal',
-    title: 'Draw',
-    sub: reasons[status.reason] || 'Drawn position.',
+    title: '和棋',
+    sub: reasons[status.reason] || '双方都无法将死。',
   };
 }
 
 /** How the game on the board ended, or null while it is still going. */
 function currentEnd() {
+  // Online, nothing but the server's verdict counts: it does not judge the
+  // three draws the engine sees (repetition, fifty moves, bare kings), so
+  // `game.status()` would end games the referee is still playing.
+  if (mode === 'online') return onlineEnd;
   if (manualEnd) return manualEnd;
   const status = game.status();
   return status.over ? describeEnd(status) : null;
@@ -1105,8 +1111,8 @@ function currentEnd() {
 // Fills in the result text and color; whether it is on screen at all is
 // updateModeUi's call, so the banner comes and goes with the player cards and
 // the move list it belongs to.
-function renderBanner(status) {
-  const end = manualEnd || (status.over ? describeEnd(status) : null);
+function renderBanner() {
+  const end = currentEnd();
   els.resultBanner.className = end ? `result-banner ${end.kind}` : 'result-banner';
   els.resultBanner.textContent = end ? `${end.title} · ${end.sub}` : '';
 }
@@ -1145,7 +1151,7 @@ function updateModeUi() {
     button.classList.toggle('selected', active);
     button.setAttribute('aria-pressed', String(active));
   }
-  els.topbarNote.textContent = MODE_NOTES[mode];
+  els.topbarNote.textContent = MODE_LABELS[mode];
 
   const online = mode === 'online';
   const showIdle = online && ['idle', 'creating', 'ended'].includes(onlineUiState);
@@ -1154,15 +1160,18 @@ function updateModeUi() {
   els.onlineHosting.classList.toggle('hidden', onlineUiState !== 'hosting');
   els.onlineJoining.classList.toggle('hidden', onlineUiState !== 'joining');
 
-  const creating = onlineUiState === 'creating';
-  els.hostBtn.disabled = creating;
-  els.hostBtnLabel.textContent = creating ? 'Creating…' : 'Create game';
-  els.joinInput.disabled = creating;
-  els.joinBtn.disabled = creating;
+  // The two doors into a game share one busy flag: a double click would ask
+  // the referee for two rooms, or for a seat twice.
+  const busy = onlineUiState === 'creating' || onlineUiState === 'joining';
+  els.hostBtn.disabled = busy;
+  els.joinBtn.disabled = busy;
+  els.joinInput.disabled = busy;
+  els.hostBtnLabel.textContent =
+    onlineUiState === 'creating' ? '正在开局…' : '开一局';
 
   // The board-side cards only make sense once an online game exists. The
   // result banner goes with them: while the setup panel is up, a leftover
-  // "You win" would read as a verdict on the game being arranged.
+  // 「你赢了」 would read as a verdict on the game being arranged.
   const showGame = !online || onlineUiState === 'playing' || onlineUiState === 'ended';
   els.cardTop.classList.toggle('hidden', !showGame);
   els.cardBottom.classList.toggle('hidden', !showGame);
@@ -1171,43 +1180,49 @@ function updateModeUi() {
 
   const showLevel = mode === 'computer';
   const showColor = mode === 'computer' || showIdle;
-  // Pass & play and games against the computer set their own clock; an online
-  // game runs on the host's, so a guest has nothing to pick.
+  // A guest has nothing to pick: the room's clock and seats are the host's
+  // doing, and the referee writes them down before either side moves.
   const showTime = !online || showIdle;
+  // Nothing to press during a game arranged or reviewed — Undo and New game
+  // belong to games this device owns, and there is no second game to offer a
+  // friend from here (they need a new code; see the note in the online card).
+  const playing = online && onlineUiState === 'playing';
+  const showButtons = !online || playing;
+  const showField = showLevel || showColor || showTime;
+  const finished = gameFinished();
   els.levelField.classList.toggle('hidden', !showLevel);
   els.colorField.classList.toggle('hidden', !showColor);
-  els.colorLabel.textContent = online ? 'You play' : 'Play as';
+  els.colorLabel.textContent = online ? '你执' : '执子';
   els.timeField.classList.toggle('hidden', !showTime);
-  els.fieldRow.classList.toggle('hidden', !(showLevel || showColor || showTime));
+  els.fieldRow.classList.toggle('hidden', !showField);
   // The hint belongs to the settings that only take hold at the start of a
   // game, so it comes and goes with them. Only the host of an online game
   // picks a side and a clock — a guest is dealt both, which is worth saying
   // next to controls that sit above the Join box.
+  const showHint = showColor || showTime;
   if (online) {
     els.controlsHint.textContent =
-      'Color and clock apply to games you create, not ones you join.';
+      '只有开局的一方选颜色和时限，而且在线对弈的钟没有每步加时。';
   } else if (showColor) {
-    els.controlsHint.textContent = 'Color and clock take effect when a new game starts.';
+    els.controlsHint.textContent = '颜色和时限在开始新的一局时生效。';
   } else {
-    els.controlsHint.textContent = 'The clock takes effect when a new game starts.';
+    els.controlsHint.textContent = '时限在开始新的一局时生效。';
   }
+  els.controlsHint.classList.toggle('hidden', !showHint);
 
-  const finished = gameFinished();
-  const playingOnline = online && onlineUiState === 'playing' && !!session?.connected;
   els.newGameBtn.classList.toggle('hidden', online);
   els.undoBtn.classList.toggle('hidden', online);
-  els.resignBtn.classList.toggle('hidden', !(playingOnline && !finished));
-  els.rematchBtn.classList.toggle('hidden', !(playingOnline && finished));
-  els.leaveBtn.classList.toggle('hidden', !playingOnline);
-  els.rematchBtn.disabled = rematchOffered;
-  els.rematchLabel.textContent = rematchOffered ? 'Rematch offered…' : 'Rematch';
-  els.buttonRow.classList.toggle('hidden', online && !playingOnline);
-  els.controlsHint.classList.toggle('hidden', !(showColor || showTime));
-  els.controls.classList.toggle('hidden', online && !playingOnline && !showIdle);
+  els.resignBtn.classList.toggle('hidden', !(playing && !finished));
+  els.leaveBtn.classList.toggle('hidden', !playing);
+  els.buttonRow.classList.toggle('hidden', !showButtons);
+  els.controlsHint.classList.toggle('hidden', !showHint);
+  // The card is only worth its border when one of the three things inside it
+  // is on show.
+  els.controls.classList.toggle('hidden', !(showField || showButtons || showHint));
 
-  els.gameoverNew.textContent = online ? 'Rematch' : 'New game';
-  els.gameoverNew.classList.toggle('hidden', online && !session?.connected);
-  els.gameoverNew.disabled = online && rematchOffered;
+  // The game-over dialog's other button starts a new game, which online means
+  // a new room and a new friend: the panel above has that.
+  els.gameoverNew.classList.toggle('hidden', online);
 }
 
 function setOnlineError(message) {
@@ -1240,7 +1255,13 @@ function movableColorNow() {
   if (reviewing() || gameFinished()) return null;
   if (mode === 'computer') return thinking ? null : myColor;
   if (mode === 'local') return game.turn();
-  return session?.connected && onlineUiState === 'playing' ? myColor : null;
+  // Online, the referee's turn is the only one that counts, and a second move
+  // may not leave before the first has been written down: the server would
+  // refuse it as not-the-right-turn and the player would watch their own piece
+  // jump back.
+  if (onlineUiState !== 'playing' || sentSan !== null) return null;
+  const snap = roomGame.room;
+  return snap && snap.turn === myColor && appliedSeq === snap.seq ? myColor : null;
 }
 
 function onSquarePress(square, event) {
@@ -1313,10 +1334,18 @@ function attemptMove(from, to, { animate }) {
       renderAll();
       return;
     }
-    // The clock has to change hands before the move is sent, so the peer is
-    // told what our clock actually reads after the move.
-    const left = afterPlyApplied(played);
-    if (mode === 'online') session?.sendMove(played, left);
+    if (mode === 'online') {
+      // Show the move at once and ask the referee to write it down. `sentSan`
+      // marks the ply as ours until the server's own record of it comes back,
+      // and the clock is deliberately not moved here: the server keeps
+      // charging the player who is thinking until their move lands, and the
+      // reading that counts arrives with the snapshot.
+      sentSan = played.san;
+      trackGameStart();
+      sendRoomMove(played.san);
+    } else {
+      afterPlyApplied(played);
+    }
     clearSelection();
     const proceed = () => {
       renderAll();
@@ -1340,6 +1369,11 @@ function attemptMove(from, to, { animate }) {
 }
 
 function afterMove() {
+  // Online, this board does not call games finished: the referee's verdict
+  // arrives with the snapshot of the move that ends the game, and it is the
+  // only one that can be exported or shown. An optimistic checkmate here would
+  // be a result the server has not agreed to yet.
+  if (mode === 'online') return;
   const status = game.status();
   if (status.over) {
     renderAll();
@@ -1437,10 +1471,8 @@ function askConfirm({ title, sub, confirmLabel, danger = true }, onConfirm) {
 }
 
 function closeDialogs() {
-  rematchAnswered = true; // closing the offer dialog here must not send a decline
   if (els.gameoverDialog.open) els.gameoverDialog.close();
   if (els.confirmDialog.open) els.confirmDialog.close();
-  if (els.rematchDialog.open) els.rematchDialog.close();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1448,7 +1480,7 @@ function closeDialogs() {
 /* ------------------------------------------------------------------ */
 
 function newGame() {
-  if (mode === 'online') return; // online games start via the session flow
+  if (mode === 'online') return; // an online game starts in a room, not here
   aiToken++;
   thinking = false;
   myColor =
@@ -1462,7 +1494,7 @@ function newGame() {
   manualEnd = null;
   reviewIndex = null;
   game.reset();
-  resetClock(timeSetting);
+  resetClock(timeControl(timeSetting));
   resetTracking();
   finishPromotion(null);
   clearSelection();
@@ -1472,8 +1504,8 @@ function newGame() {
   announcedPlies = 0;
   els.srStatus.textContent =
     mode === 'local'
-      ? 'New game. White to move.'
-      : `New game. You play ${colorName(myColor)}.`;
+      ? '新的一局。白方走。'
+      : `新的一局。你执${side(myColor)}。`;
   renderAll();
   if (mode === 'computer' && game.turn() !== myColor) computerTurn();
 }
@@ -1487,9 +1519,9 @@ function requestNewGame() {
   }
   askConfirm(
     {
-      title: 'Start a new game?',
-      sub: 'The game in progress will be lost.',
-      confirmLabel: 'New game',
+      title: '开始新的一局？',
+      sub: '现在这一局会丢掉。',
+      confirmLabel: '新的一局',
       danger: false,
     },
     newGame,
@@ -1525,16 +1557,20 @@ function undoPly() {
   if (before) clock.restore(before);
 }
 
-/** Drop every game/session in progress ahead of a mode change. */
+/** Drop every game, room and timer ahead of a mode change. */
 function teardownForModeChange() {
-  if (session) {
-    session.leave();
-    session = null;
-  }
+  stopRoomPolling();
+  roomGame.reset();
+  onlineUiState = 'idle';
+  onlineReturnState = 'idle';
+  onlineEnd = null;
+  roomRole = null;
+  appliedSeq = 0;
+  sentSan = null;
+  flagPollDone = false;
+  rebuilding = false;
   aiToken++;
   thinking = false;
-  opponentName = null;
-  rematchOffered = false;
   manualEnd = null;
   reviewIndex = null;
   closeDialogs();
@@ -1553,17 +1589,12 @@ function setMode(next) {
       newGame();
     }
   };
-  if (
-    mode === 'online' &&
-    session?.connected &&
-    !gameFinished() &&
-    game.history().length > 0
-  ) {
+  if (onlineUiState === 'playing' && !gameFinished() && game.history().length > 0) {
     askConfirm(
       {
-        title: 'Leave the online game?',
-        sub: 'Leaving now counts as abandoning the game — your friend wins.',
-        confirmLabel: 'Leave',
+        title: '离开在线对弈？',
+        sub: '换了模式就不再刷新这一局：钟会一直走到归零，而这个房间码不能坐回来。',
+        confirmLabel: '离开',
       },
       perform,
     );
@@ -1573,11 +1604,9 @@ function setMode(next) {
     // the player meant it.
     askConfirm(
       {
-        title: `Switch to ${MODE_LABELS[next]}?`,
-        sub: `Your ${
-          mode === 'computer' ? 'game against the computer' : 'pass & play game'
-        } will be lost.`,
-        confirmLabel: 'Switch',
+        title: `换到${MODE_LABELS[next]}？`,
+        sub: `换了模式，现在的${MODE_LABELS[mode]}就丢掉了。`,
+        confirmLabel: '换模式',
         danger: false,
       },
       perform,
@@ -1591,184 +1620,224 @@ function setMode(next) {
 /* Online play                                                         */
 /* ------------------------------------------------------------------ */
 
+// The sentence the join box needs before any room exists, for a player who
+// arrived through an invite link.
+const INVITE_NOTE = '有人约你对弈 —— 按「进入」就能坐下。';
+
+const roomGame = new RoomGame({
+  onSnapshot: handleRoomSnapshot,
+  onError: handleRoomProblem,
+});
+
+/**
+ * The clock to open a room with: this device's picker, under the server's own
+ * ceiling. "No limit" has no online equivalent — a game nobody can lose on time
+ * would hold its room open forever — so that choice sends nothing and the room
+ * gets the referee's default.
+ */
+function roomTimeMs() {
+  const control = timeControl(timeSetting);
+  return control ? Math.min(control.initial, ROOM_MAX_TIME_MS) : null;
+}
+
+/**
+ * Where a sentence about the room goes. While the setup panel is on screen it
+ * has a line of its own; a player mid-game has only the board to look at, so
+ * the news goes to the toast there. `creating` and `joining` count as setup:
+ * the call that failed came from this panel, and it is back on screen by the
+ * time the answer arrives.
+ */
+function onlineProblem(message) {
+  if (['idle', 'creating', 'joining', 'ended'].includes(onlineUiState)) setOnlineError(message);
+  else showToast(message);
+}
+
+/**
+ * The online tab with nothing in it: no room, no clock, and either an empty
+ * code box or one already filled by an invite link.
+ */
 function enterOnlineIdle({ inviteCode = null } = {}) {
+  stopRoomPolling();
+  roomGame.reset();
   onlineUiState = 'idle';
   onlineReturnState = 'idle';
+  onlineEnd = null;
+  roomRole = null;
+  appliedSeq = 0;
+  sentSan = null;
+  flagPollDone = false;
+  rebuilding = false;
   myColor = 'w';
   manualEnd = null;
   reviewIndex = null;
   game.reset();
   // No clock until a game exists: an online game runs on the host's control,
-  // which this side only learns at the handshake.
-  resetClock(DEFAULT_TIME_ID);
+  // which this side only learns from the room.
+  resetClock(null);
   resetTracking();
   clearSelection();
   clearTimeout(gameOverTimer);
   boardView.setOrientation('w');
   announcedPlies = 0;
   setOnlineError('');
-  els.onlineInviteNote.hidden = !inviteCode;
   els.joinInput.value = inviteCode || '';
+  els.onlineInviteNote.hidden = !inviteCode;
+  if (inviteCode) els.onlineInviteNote.textContent = INVITE_NOTE;
   els.srStatus.textContent = inviteCode
-    ? 'You have been invited to a game. Press Join to connect.'
-    : 'Online mode. Create a game or join with an invite code.';
+    ? '你收到了对弈邀请。按「进入」就能坐下。'
+    : '在线对弈。开一局把房间码发给对方，或者输入对方的房间码。';
   renderAll();
   if (inviteCode) els.joinBtn.focus();
-  warmUpOnline();
 }
 
-/**
- * Warm up the SDK and TURN relays so create/join feels instant. Only when
- * already signed in — never trigger an auth prompt just by opening the tab.
- */
-function warmUpOnline() {
-  loadPuter()
-    .then((puter) => {
-      if (puter.auth?.isSignedIn?.()) return puter.peer.ensureTurnRelays?.();
-      return null;
-    })
-    .catch(() => {});
-}
-
-function makeSession() {
-  const s = new OnlineSession({
-    onStart: (info) => session === s && handleSessionStart(info),
-    onMove: (move) => session === s && handleRemoteMove(move),
-    onFlag: (color) => session === s && handleRemoteFlag(color),
-    onResign: () => session === s && handleOpponentResign(),
-    onRematchOffer: () => session === s && handleRematchOffer(),
-    onRematchAccept: () => session === s && gameFinished() && startRematch(),
-    onRematchDecline: () => session === s && handleRematchDecline(),
-    onClose: (info) => session === s && handleSessionClose(info),
-    onError: (message) => session === s && showToast(message),
-  });
-  return s;
-}
-
-async function createGame() {
+/** Open a room and wait for a friend to sit down in the other half of it. */
+async function createRoom() {
   if (mode !== 'online' || !['idle', 'ended'].includes(onlineUiState)) return;
-  const fromState = onlineUiState; // restore on failure ('ended' keeps its board)
-  onlineReturnState = fromState;
+  onlineReturnState = onlineUiState; // a refusal keeps whatever board was there
+  roomRole = 'host';
+  // A room that has not been played starts at seq 0, and the cursor left over
+  // from the game before it would read that as an answer arriving too late.
+  appliedSeq = 0;
+  sentSan = null;
+  flagPollDone = false;
   setOnlineError('');
   els.onlineInviteNote.hidden = true;
   onlineUiState = 'creating';
   updateModeUi();
-  const color =
-    colorSetting === 'random' ? (Math.random() < 0.5 ? 'w' : 'b') : colorSetting;
-  const s = (session = makeSession());
-  try {
-    const code = await s.host(color, timeSetting);
-    if (session !== s) return; // cancelled or mode switched meanwhile
-    if (!code) {
-      onlineUiState = fromState;
-      updateModeUi();
-      return;
-    }
-    els.inviteCode.textContent = code;
-    track('Invite Created');
-    onlineUiState = 'hosting';
+  const reply = await roomGame.create({ color: colorSetting, timeMs: roomTimeMs() });
+  if (!reply?.ok) {
+    roomRole = null;
+    onlineUiState = onlineReturnState;
     updateModeUi();
-    els.copyLinkBtn.focus();
-    els.srStatus.textContent = 'Game created. Share the invite code with your friend.';
-  } catch (err) {
-    if (session !== s) return;
-    session = null;
-    onlineUiState = fromState;
-    updateModeUi();
-    setOnlineError(friendlyError(err, 'Could not create the game. Please try again.'));
+    return;
   }
+  // handleRoomSnapshot has already put the code on screen, moved the panel to
+  // "waiting for your friend", and started the polling that tells us when
+  // somebody arrives.
+  if (onlineUiState === 'hosting') els.copyLinkBtn.focus();
 }
 
-async function joinGame(rawCode) {
+/** Take the empty seat in somebody else's room. */
+async function joinRoom(rawCode) {
   if (mode !== 'online' || !['idle', 'ended'].includes(onlineUiState)) return;
-  const fromState = onlineUiState; // restore on failure ('ended' keeps its board)
-  onlineReturnState = fromState;
-  const code = normalizeInviteCode(rawCode);
+  const code = normalizeCode(rawCode);
   if (!code) {
-    setOnlineError('Enter an invite code first.');
+    setOnlineError('先填房间码 —— 六位字母和数字。');
     els.joinInput.focus();
     return;
   }
+  onlineReturnState = onlineUiState;
+  roomRole = 'guest';
+  // The cursor of the room this board last watched says nothing about this one.
+  appliedSeq = 0;
+  sentSan = null;
+  flagPollDone = false;
   setOnlineError('');
+  els.onlineInviteNote.hidden = true;
   onlineUiState = 'joining';
   updateModeUi();
-  const s = (session = makeSession());
-  try {
-    await s.join(code);
-    // Transport is up; handleSessionStart flips the UI once the host's
-    // handshake arrives, and handleSessionClose covers every failure.
-  } catch (err) {
-    if (session !== s) return;
-    session = null;
-    onlineUiState = fromState;
+  const reply = await roomGame.join(code);
+  if (!reply?.ok) {
+    roomRole = null;
+    onlineUiState = onlineReturnState;
     updateModeUi();
-    setOnlineError(friendlyError(err, 'Could not join — check the code and try again.'));
     els.joinInput.focus();
+    return;
   }
+  // The room came back active with a seat in it, so handleRoomSnapshot has
+  // already sat us down at it.
 }
 
-/** Accept a bare code or a full invite link pasted into the join box. */
-function normalizeInviteCode(raw) {
-  const text = (raw || '').trim();
-  const match = /#g=([^&\s]+)/.exec(text);
-  if (!match) return text;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
-}
-
-function friendlyError(err, fallback) {
-  const message =
-    (typeof err === 'string' && err) || err?.message || err?.error?.message || '';
-  return message ? String(message) : fallback;
-}
-
+/**
+ * Back out of an attempt: a room nobody joined, or a join that did not get in.
+ *
+ * There is nothing to tell the server. A room still `waiting` is not a game
+ * yet, and reaping the ones nobody sits down in is a later phase's job; this
+ * device simply stops asking about it.
+ */
 function cancelOnlineSetup() {
-  session?.leave();
-  session = null;
-  // Backing out lands where the attempt started, exactly like a create/join
-  // that fails: hosting from a finished game and then cancelling must not
-  // throw that game's cards and move list away while its board and result are
-  // still on screen.
+  stopRoomPolling();
+  roomGame.reset();
+  roomRole = null;
+  appliedSeq = 0;
+  sentSan = null;
   onlineUiState = onlineReturnState;
   setOnlineError('');
   updateModeUi();
 }
 
-function handleSessionStart({ myColor: assigned, opponentName: name, role, timeId }) {
-  myColor = assigned;
-  opponentName = name || null;
-  track('Online Game Connected', { role });
-  const control = timeControl(timeId);
-  // A guest is told the clock along with the color, since neither was theirs
-  // to choose.
-  startOnlineGame(
-    `Connected to ${opponentLabel()}. You play ${colorName(myColor)}${
-      control ? ` — ${control.label}` : ''
-    }.`,
-  );
+/**
+ * The referee's word about the room, whichever call brought it.
+ *
+ * This board is not a copy of the server's state but a replay of the server's
+ * move list, with the clocks written in whole from every snapshot. That is what
+ * lets one path serve all three ways news arrives: the answer to our own move,
+ * a poll that found nothing, and a poll that found four moves this tab played
+ * hide-and-seek through.
+ */
+function handleRoomSnapshot(snap, fresh) {
+  if (mode !== 'online') return;
+  // A question that left after a newer one can still answer first. The cursor
+  // only moves forward, so the older picture is dropped rather than unplayable.
+  if (snap.seq < appliedSeq) return;
+
+  if (snap.status === 'waiting') {
+    // A room with one seat. This is also the only thing that ever tells a host
+    // a friend has arrived — a guest sitting down is not a move, so it makes no
+    // event — which is why the hosting panel stays on the polling.
+    els.inviteCode.textContent = snap.code;
+    onlineUiState = 'hosting';
+    startRoomPolling();
+    updateModeUi();
+    return;
+  }
+
+  if (onlineUiState !== 'playing' && onlineUiState !== 'ended') {
+    sitDown(snap, fresh);
+    return;
+  }
+
+  applyRoomClock(snap);
+  // rebuild() reads the whole list itself when the catch-up poll lands; taking
+  // its snapshot on the way through would play every move a second time.
+  if (rebuilding) return;
+
+  const before = game.history().length;
+  if (!applyEvents(fresh) || needsRebuild(snap)) {
+    rebuild();
+    return;
+  }
+  const last = game.history()[game.history().length - 1];
+  const settle = () => {
+    clearSelection();
+    renderAll();
+    if (snap.status === 'over') endFromRoom(snap);
+  };
+  // Slide the newest ply in. A board that caught up on four moves animates the
+  // last of them — the rest are history the player has already walked past.
+  if (game.history().length > before) showMove(last.from, last.to, settle);
+  else settle();
 }
 
-function startRematch() {
-  if (!session?.connected) return;
-  session.swapColors();
-  myColor = session.myColor;
-  track('Rematch Started');
-  startOnlineGame(`Rematch started — you now play ${colorName(myColor)}.`);
-}
-
-function startOnlineGame(announcement) {
+/**
+ * A game to play has appeared, so sit down at it. The seat, the clock and the
+ * moves so far all come from the room: a guest chose none of them, and a host
+ * chose the first two on this device but sees them repeated back by the
+ * referee, which is the version that counts.
+ */
+function sitDown(snap, fresh) {
   aiToken++;
   thinking = false;
+  myColor = snap.you;
   onlineUiState = 'playing';
-  rematchOffered = false;
+  onlineEnd = null;
   manualEnd = null;
   reviewIndex = null;
+  appliedSeq = 0;
+  sentSan = null;
+  flagPollDone = false;
   game.reset();
-  // Both games of a rematch run on the control the host set at the start.
-  resetClock(session?.timeId || DEFAULT_TIME_ID);
+  resetClock(roomControl(snap.time_ms));
   resetTracking();
   finishPromotion(null);
   clearSelection();
@@ -1776,215 +1845,323 @@ function startOnlineGame(announcement) {
   closeDialogs();
   boardView.setOrientation(myColor);
   announcedPlies = 0;
-  els.srStatus.textContent = announcement;
-  showToast(announcement);
+  track('Online Game Connected', { role: roomRole });
+  applyRoomClock(snap);
+  applyEvents(fresh);
+  startRoomPolling();
+  // A room that ended before this seat arrived — rejoining one somebody else
+  // finished. The join reply carries no moves, so ask for the record now rather
+  // than wait for the next poll to get round to it: the alternative is a board
+  // that looks ready to play for a couple of seconds before the verdict lands.
+  if (snap.status === 'over') {
+    roomGame.reread();
+    return;
+  }
+  // The clock starts here rather than at the first move: the referee sets it
+  // running the moment the second seat fills, whether or not anybody answers.
+  const text = `你执${side(myColor)}，对面是 ${opponentLabel()}${
+    clock.enabled ? `，每方 ${speakClock(snap.time_ms)}` : ''
+  }。`;
+  els.srStatus.textContent = text;
+  showToast(text);
   renderAll();
 }
 
-function handleRemoteMove({ from, to, promotion, clock: remoteClock }) {
-  if (mode !== 'online' || onlineUiState !== 'playing' || gameFinished()) return;
-  if (game.turn() === myColor) {
-    desync();
-    return;
-  }
-  let played = null;
-  try {
-    played = game.move({ from, to, promotion: promotion || 'q' });
-  } catch {
-    played = null; // malformed squares throw inside the engine
-  }
-  if (!played) {
-    desync();
-    return;
-  }
-  // Also counts the game as started: the opponent may have the first move.
-  afterPlyApplied(played);
-  applyRemoteClock(played.color, remoteClock);
-  clearSelection();
-  showMove(played.from, played.to, () => {
-    renderAll();
-    const status = game.status();
-    if (status.over) showEnd(describeEnd(status));
-  });
+/**
+ * Put the server's clocks on the board. Nothing here counts a move down by
+ * hand: `Clock` keeps spending from the balance it is handed, so between two
+ * polls the player watches a live countdown that the next snapshot straightens
+ * out by the few hundred milliseconds of travel time it took.
+ */
+function applyRoomClock(snap) {
+  if (!clock.enabled || !snap.clock) return;
+  clock.restore(snap.clock);
 }
 
 /**
- * The opponent says the game ended on time. Either side may be the one to
- * notice — they report their own flag, and they claim ours if we went quiet —
- * so this accepts whichever color they name.
+ * Replay the moves the board has not seen. Returns false the moment the list
+ * stops fitting — a hole in the numbering, or a move the engine will not play
+ * from here — which is the caller's cue to rebuild the game from the whole list
+ * rather than go on patching it.
  */
-function handleRemoteFlag(loser) {
-  if (mode !== 'online' || onlineUiState !== 'playing' || gameFinished()) return;
-  clock.setRunning(null);
-  stopClockTimer();
-  endGameManually(describeTimeout(loser));
+function applyEvents(events) {
+  for (const event of events) {
+    if (!applyEvent(event)) return false;
+  }
+  return true;
 }
 
-/** The peers disagree about the position; there is no way to keep playing. */
-function desync() {
-  session?.leave();
-  session = null;
+function applyEvent(event) {
+  if (event.seq <= appliedSeq) return true; // already on the board
+  if (event.seq !== appliedSeq + 1) return false; // a move we were never told about
+  if (event.san === sentSan) {
+    // The referee writing down what this side already played in anticipation.
+    // The ply is on the board, so only the cursor moves.
+    appliedSeq = event.seq;
+    sentSan = null;
+    return true;
+  }
+  // A move of theirs where we had guessed ours: their word is the one that
+  // stands, so take the guess back before playing what actually happened.
+  if (sentSan !== null) rewindGuess();
+  // The SAN came from the referee, so it is one this engine would have written
+  // itself — unless the two have fallen out over the position, which is what
+  // the null answer means and what a rebuild is for.
+  const played = game.move(event.san);
+  if (!played) return false;
+  appliedSeq = event.seq;
+  trackGameStart(); // also counts the game as started: they may have opened
+  return true;
+}
+
+/** Lift the anticipated move off the board. Rendering is the caller's. */
+function rewindGuess() {
+  if (sentSan === null) return;
+  sentSan = null;
+  game.undo();
+}
+
+/** Do the board and the referee disagree about where the game is? */
+function needsRebuild(snap) {
+  if (appliedSeq < snap.seq) return true; // moves exist that this board has not seen
+  // Ahead of the room row is the server's own two reads a move apart, not a
+  // board out of step; and with a move in flight this side is honestly one ply
+  // past the record until the referee confirms or refuses it.
+  if (appliedSeq > snap.seq || sentSan !== null) return false;
+  return game.fen() !== snap.fen;
+}
+
+/**
+ * Play the game again from the referee's own list of moves. The one recovery
+ * this board can do by itself, and the one thing a player should never notice:
+ * the pieces land back where the server says they are.
+ */
+async function rebuild() {
+  if (rebuilding) return;
+  rebuilding = true;
+  try {
+    game.reset();
+    appliedSeq = 0;
+    sentSan = null;
+    const reply = await roomGame.reread();
+    if (!reply?.ok || !applyEvents(roomGame.events) || needsRebuild(roomGame.room)) {
+      roomDesynced();
+    }
+  } finally {
+    rebuilding = false;
+  }
+  if (onlineUiState === 'ended') return; // roomDesynced has already spoken
+  applyRoomClock(roomGame.room);
+  renderAll();
+  if (roomGame.room?.status === 'over') endFromRoom(roomGame.room);
+}
+
+/**
+ * The board cannot be brought into line with the referee. There is no move to
+ * take back and no position to trust, so the game stops here; the two players
+ * have to open another room. The list is still on the server if anybody wants
+ * to read it.
+ */
+function roomDesynced() {
+  if (onlineUiState === 'ended' && !roomTimer) return; // already said
+  stopRoomPolling();
   onlineUiState = 'ended';
   finishPromotion(null);
   clearSelection();
   closeDialogs();
-  const text = 'The game went out of sync and had to end. Please start a new one.';
-  showToast(text);
+  const text = '棋盘和服务器的记录对不上，这一局只能停下。请重新开一局。';
   els.srStatus.textContent = text;
+  showToast(text);
   renderAll();
 }
 
-/** End the game for a reason the engine cannot see: a resignation, a flag
- *  fall, an opponent walking away. */
-function endGameManually(end) {
-  manualEnd = end;
-  finishPromotion(null);
-  clearSelection();
-  // A confirm dialog opened before the game ended (e.g. our own pending
-  // resign) is now stale — acting on it could overwrite this result.
-  closeDialogs();
-  els.srStatus.textContent = `${end.title} — ${end.sub}`;
-  renderAll();
-  showEnd(end);
+/** How the referee ended a game, in the words PGN exports. */
+const ROOM_TERMINATION = {
+  checkmate: 'normal',
+  stalemate: 'normal',
+  'resign-white': 'resigned',
+  'resign-black': 'resigned',
+  'timeout-white': 'time forfeit',
+  'timeout-black': 'time forfeit',
+};
+
+const ROOM_SIDE = {
+  'resign-white': 'w',
+  'resign-black': 'b',
+  'timeout-white': 'w',
+  'timeout-black': 'b',
+};
+
+/** The verdict, in the shape every other end on this board has. */
+function roomEnd(snap) {
+  const won = snap.winner !== null && snap.winner !== undefined;
+  const kind = won ? (snap.winner === myColor ? 'win' : 'loss') : 'draw';
+  return {
+    kind,
+    // The server's own code, so the analytics for online games name the reason
+    // the referee gave rather than one this board inferred.
+    reason: snap.result,
+    result: won ? resultFor(snap.winner) : '1/2-1/2',
+    termination: ROOM_TERMINATION[snap.result] || 'abandoned',
+    title: kind === 'draw' ? '和棋' : kind === 'win' ? '你赢了' : '你输了',
+    sub: roomEndText(snap),
+  };
 }
 
-function handleOpponentResign() {
-  if (mode !== 'online' || gameFinished()) return;
-  endGameManually({
-    kind: 'win',
-    reason: 'opponent resigned',
-    result: resultFor(myColor),
-    termination: 'normal',
-    title: 'You win',
-    sub: `${opponentLabel()} resigned.`,
-  });
+/**
+ * What the end says to the person sitting at this seat. The room carries the
+ * phrase too, but it is written for somebody reading a list of rooms: it names
+ * colours, where a player wants to know about themselves.
+ */
+function roomEndText(snap) {
+  if (snap.result === 'checkmate') {
+    return snap.winner === myColor ? '你把对方将死了。' : `${opponentLabel()}把你将死了。`;
+  }
+  if (snap.result === 'stalemate') return '逼和 —— 两边都没有合法走法。';
+  const side = ROOM_SIDE[snap.result];
+  if (!side) return snap.result_text || '这局结束了。';
+  const who = side === myColor ? '你' : opponentLabel();
+  return snap.result.startsWith('resign') ? `${who}认输了。` : `${who}的钟走完了。`;
+}
+
+/** Take the referee's verdict onto the board, once. */
+function endFromRoom(snap) {
+  if (onlineEnd) return;
+  onlineEnd = roomEnd(snap);
+  onlineUiState = 'ended';
+  // Nothing left to ask about: the game is written down and its clocks are
+  // stopped where the referee stopped them.
+  stopRoomPolling();
+  revealEnd(onlineEnd);
+}
+
+/* ------------------------------------------------------------------ */
+/* Keeping up with the room                                            */
+/* ------------------------------------------------------------------ */
+
+function startRoomPolling() {
+  if (roomTimer || !roomGame.code) return;
+  roomTimer = setInterval(pollRoom, POLL_MS);
+}
+
+function stopRoomPolling() {
+  clearInterval(roomTimer);
+  roomTimer = 0;
+}
+
+/**
+ * Ask what we have missed. One question at a time, and the same flag covers a
+ * move on its way: two answers arriving out of order is a board that has to be
+ * rebuilt, and a slow host should not have twenty polls queued up behind them.
+ */
+async function pollRoom() {
+  if (requestOut) return;
+  requestOut = true;
+  try {
+    await roomGame.poll();
+  } finally {
+    requestOut = false;
+  }
+}
+
+/** Send a move the player has already seen played. */
+async function sendRoomMove(san) {
+  requestOut = true;
+  try {
+    await roomGame.move(san);
+  } finally {
+    requestOut = false;
+  }
+  // The reply carried the room as the referee saw it after writing the move
+  // down, so handleRoomSnapshot has already put the clocks right; a refusal
+  // went to handleRoomProblem. There is nothing left to do from here.
+}
+
+/**
+ * A call that came back refused. Which of the three kinds it is decides how
+ * much changes: an account problem stops the game and opens the panel that
+ * fixes it, a room we are no longer in stops the game, and a dropped question
+ * is not news at all — the next poll asks it again.
+ */
+function handleRoomProblem(reply) {
+  if (!reply || mode !== 'online') return;
+  const code = reply.code;
+
+  if (code === 'sign_in_required' || code === 'verify_required') {
+    stopRoomPolling();
+    const text = problemText(reply);
+    els.srStatus.textContent = text;
+    onlineProblem(text);
+    if (onlineUiState === 'playing') onlineUiState = 'ended';
+    updateModeUi();
+    account.open(code === 'sign_in_required' ? 'signin' : 'account');
+    return;
+  }
+
+  if (code === 'not_room_member' || code === 'no_such_room') {
+    stopRoomPolling();
+    onlineUiState = 'ended';
+    onlineProblem(problemText(reply));
+    updateModeUi();
+    return;
+  }
+
+  const arranging = onlineUiState === 'creating' || onlineUiState === 'joining';
+  if ((code === 'network' || code === 'service') && sentSan === null && !arranging) {
+    return; // a hole in the connection, not a problem with the game
+  }
+
+  onlineProblem(problemText(reply));
+  // The move came back refused, so the position on the board is one the
+  // referee is not playing. A dropped request is the exception: the move may
+  // well have landed, and waiting for the answer beats guessing it here.
+  if (sentSan !== null && code !== 'network') {
+    rewindGuess();
+    renderAll();
+  }
 }
 
 function requestResign() {
-  if (!(mode === 'online' && session?.connected && !gameFinished())) return;
+  if (!(mode === 'online' && onlineUiState === 'playing' && !gameFinished())) return;
   askConfirm(
     {
-      title: 'Resign this game?',
-      sub: `${opponentLabel()} will win the game.`,
-      confirmLabel: 'Resign',
+      title: '要认输吗？',
+      sub: `认输就把这一局送给了 ${opponentLabel()}。`,
+      confirmLabel: '认输',
     },
     () => {
-      // The game may have ended while the dialog was open (opponent resigned
-      // or left) — never let a stale confirmation overwrite that result.
-      if (!session?.connected || gameFinished()) return;
-      session.sendResign();
-      endGameManually({
-        kind: 'loss',
-        reason: 'resigned',
-        result: resultFor(otherColor(myColor)),
-        termination: 'normal',
-        title: 'You lose',
-        sub: 'You resigned.',
-      });
+      // The referee may have ended the game while this dialog was open; a stale
+      // confirmation must not go and write over that verdict.
+      if (!(mode === 'online' && onlineUiState === 'playing' && !gameFinished())) return;
+      // Nothing is decided here. The reply comes back with the game over, and
+      // that snapshot is what puts the result on the board.
+      roomGame.resign();
     },
   );
 }
 
+/**
+ * Stop watching this room. There is no message to send: the game stays exactly
+ * as it is, the clocks included, and the other player goes on waiting for a
+ * move that will not come. What cannot be undone is this side's seat — a room
+ * only takes a player while it is empty — so leaving is final, and the player
+ * is told so.
+ */
 function requestLeave() {
   if (mode !== 'online') return;
-  const perform = () => {
-    session?.leave();
-    session = null;
-    opponentName = null;
-    rematchOffered = false;
+  const inPlay = onlineUiState === 'playing' && !gameFinished() && game.history().length > 0;
+  if (!inPlay) {
     enterOnlineIdle();
-  };
-  if (session?.connected && !gameFinished() && game.history().length > 0) {
-    askConfirm(
-      {
-        title: 'Leave the game?',
-        sub: 'Leaving now counts as abandoning the game — your friend wins.',
-        confirmLabel: 'Leave',
-      },
-      perform,
-    );
-  } else {
-    perform();
-  }
-}
-
-function offerRematch() {
-  if (!(mode === 'online' && session?.connected && gameFinished()) || rematchOffered) {
     return;
   }
-  rematchOffered = true;
-  session.sendRematchOffer();
-  if (els.gameoverDialog.open) els.gameoverDialog.close();
-  clearTimeout(gameOverTimer);
-  showToast(`Rematch offered — waiting for ${opponentLabel()}.`);
-  updateModeUi();
-}
-
-function handleRematchOffer() {
-  if (!(mode === 'online' && session?.connected && gameFinished())) return;
-  if (rematchOffered) {
-    // Both sides asked for a rematch — just start it.
-    session.sendRematchAccept();
-    startRematch();
-    return;
-  }
-  if (els.gameoverDialog.open) els.gameoverDialog.close();
-  clearTimeout(gameOverTimer); // keep the delayed game-over dialog from covering this
-  els.rematchSub.textContent = `${opponentLabel()} wants to play again — colors swap.`;
-  rematchAnswered = false;
-  // A repeated offer while the dialog is already up must not throw.
-  if (!els.rematchDialog.open) els.rematchDialog.showModal();
-}
-
-function handleRematchDecline() {
-  rematchOffered = false;
-  showToast(`${opponentLabel()} declined the rematch.`);
-  updateModeUi();
-}
-
-function handleSessionClose({ reason, wasConnected }) {
-  session = null;
-  rematchOffered = false;
-  if (!wasConnected) {
-    // Joining fell through before the game began (hosts keep waiting through
-    // failed attempts, so only guests land here). Fall back to the state the
-    // attempt started from, so a reviewable finished game stays on screen.
-    onlineUiState = onlineReturnState;
-    updateModeUi();
-    setOnlineError(
-      reason === 'left'
-        ? 'Your friend cancelled the game.'
-        : reason || 'Connection failed — please try again.',
-    );
-    return;
-  }
-  onlineUiState = 'ended';
-  closeDialogs();
-  if (!gameFinished()) {
-    // Leaving before the first move aborts the game rather than losing it.
-    endGameManually(
-      game.history().length === 0
-        ? {
-            kind: 'draw',
-            reason: 'aborted',
-            result: '*',
-            termination: 'abandoned',
-            title: 'Game aborted',
-            sub: `${opponentLabel()} left before the first move.`,
-          }
-        : {
-            kind: 'win',
-            reason: 'opponent left',
-            result: resultFor(myColor),
-            termination: 'abandoned',
-            title: 'You win',
-            sub: `${opponentLabel()} left the game.`,
-          },
-    );
-  } else {
-    showToast(`${opponentLabel()} left the game.`);
-    renderAll();
-  }
+  askConfirm(
+    {
+      title: '离开这一局？',
+      sub: '离开之后这个房间码不能再坐回来。钟会继续走，直到归零。',
+      confirmLabel: '离开',
+    },
+    enterOnlineIdle,
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1992,9 +2169,7 @@ function handleSessionClose({ reason, wasConnected }) {
 /* ------------------------------------------------------------------ */
 
 function inviteLink() {
-  return `${location.origin}${location.pathname}#g=${encodeURIComponent(
-    session?.inviteCode || '',
-  )}`;
+  return `${location.origin}${location.pathname}#g=${encodeURIComponent(roomGame.code || '')}`;
 }
 
 async function copyToClipboard(text) {
@@ -2007,9 +2182,9 @@ async function copyToClipboard(text) {
 }
 
 async function copyInviteCode() {
-  if (!session?.inviteCode) return;
-  if (await copyToClipboard(session.inviteCode)) {
-    showToast('Invite code copied.');
+  if (!roomGame.code) return;
+  if (await copyToClipboard(roomGame.code)) {
+    showToast('房间码已复制。');
     const copyIcon = els.copyCodeBtn.querySelector('.icon-copy');
     const checkIcon = els.copyCodeBtn.querySelector('.icon-check');
     copyIcon?.classList.add('hidden');
@@ -2020,21 +2195,21 @@ async function copyInviteCode() {
       checkIcon?.classList.add('hidden');
     }, 1600);
   } else {
-    showToast('Copy failed — select the code and copy it manually.');
+    showToast('复制没成功 —— 请选中房间码自己复制。');
   }
 }
 
 async function copyInviteLink() {
-  if (!session?.inviteCode) return;
+  if (!roomGame.code) return;
   if (await copyToClipboard(inviteLink())) {
-    showToast('Invite link copied — send it to your friend.');
-    els.copyLinkLabel.textContent = 'Link copied!';
+    showToast('邀请链接已复制 —— 发给对方就能进来。');
+    els.copyLinkLabel.textContent = '链接已复制！';
     clearTimeout(copyLinkTimer);
     copyLinkTimer = setTimeout(() => {
-      els.copyLinkLabel.textContent = 'Copy invite link';
+      els.copyLinkLabel.textContent = '复制邀请链接';
     }, 1600);
   } else {
-    showToast('Copy failed — select the code and copy it manually.');
+    showToast('复制没成功 —— 请选中房间码自己复制。');
   }
 }
 
@@ -2042,12 +2217,22 @@ async function copyInviteLink() {
 /* PGN export                                                          */
 /* ------------------------------------------------------------------ */
 
-/** Player names for the export, in the language of the current mode. */
+/**
+ * Player names for the export. A PGN header is scoresheet notation rather than
+ * interface text, so it keeps the English form — the difficulty included, which
+ * is why that is spelled out here instead of reading LEVELS' labels.
+ */
+const PGN_LEVEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
+
 function pgnNames() {
   if (mode === 'local') return { w: 'Player 1', b: 'Player 2' };
-  const me = mode === 'online' ? 'You' : 'Player';
-  const them = mode === 'online' ? opponentName || 'Opponent' : `Computer (${LEVELS[level].label})`;
-  return myColor === 'w' ? { w: me, b: them } : { w: them, b: me };
+  if (mode === 'online') {
+    // The nicknames the referee holds, so a scoresheet says who played rather
+    // than who was sitting at this device.
+    return { w: seatName('w') || 'White', b: seatName('b') || 'Black' };
+  }
+  const cpu = `Computer (${PGN_LEVEL[level]})`;
+  return myColor === 'w' ? { w: 'Player', b: cpu } : { w: cpu, b: 'Player' };
 }
 
 function currentPgn(date) {
@@ -2067,9 +2252,9 @@ function currentPgn(date) {
 async function copyPgn() {
   if (game.history().length === 0) return;
   if (await copyToClipboard(currentPgn(new Date()))) {
-    showToast('Game copied as PGN.');
+    showToast('棋谱已复制（PGN 格式）。');
   } else {
-    showToast('Copy failed — your browser blocked clipboard access.');
+    showToast('复制没成功 —— 浏览器拦下了剪贴板。');
   }
 }
 
@@ -2089,7 +2274,7 @@ function downloadPgn() {
     link.remove();
     // Released on a later task, once the download has certainly started.
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    showToast('Game saved as a PGN file.');
+    showToast('棋谱已存成 PGN 文件。');
   } catch {
     if (url) URL.revokeObjectURL(url);
     copyPgn(); // no downloads here; the clipboard still gets the player the game
@@ -2100,91 +2285,24 @@ function downloadPgn() {
 /* Account                                                             */
 /* ------------------------------------------------------------------ */
 
-// The SDK's <puter-user-menu> (ui/userMenu.js) signs the player in and out
-// from the top bar. Nothing but online play uses the account, so that is all
-// there is to keep in step with it.
-
-/** Once the SDK has loaded: the element takes its place in the top bar. */
-function showUserMenu() {
-  userMenu = mountUserMenu(els.topbarRight, {
-    theme: themeSetting,
-    signOutGuard: confirmSignOut,
-    onSignIn: handleSignedIn,
-    onSignOut: handleSignedOut,
-  });
-}
-
 /**
- * The element's Sign out is immediate. With an online game under way that
- * would abandon it without a word, so ask first, exactly as Leave does.
- * Returns what to do in place of the element's own Sign out, or null when
- * there is nothing to ask about.
+ * The ichessgeek panel in the top bar (see ui/account.js). Online play is the
+ * only thing the account is needed for, so the one thing to keep in step with
+ * it is the room: signing out stops watching it, since the referee will not
+ * take another move from a seat that is no longer signed in.
  */
-function confirmSignOut() {
-  if (
-    !(
-      mode === 'online' &&
-      session?.connected &&
-      !gameFinished() &&
-      game.history().length > 0
-    )
-  ) {
-    return null;
-  }
-  return () =>
-    askConfirm(
-      {
-        title: 'Sign out and leave the game?',
-        sub: 'Leaving now counts as abandoning the game — your friend wins.',
-        confirmLabel: 'Sign out',
-      },
-      () => {
-        // Say goodbye while the connection is still ours, then sign out; the
-        // element follows the SDK and goes back to Sign in by itself.
-        closeOnlineForSignOut();
-        Promise.resolve(window.puter?.auth?.signOut?.()).catch(() => {});
-      },
-    );
-}
+const account = mountAccount({ showToast, onSignOut: handleSignedOut });
 
-/**
- * Signed out: whatever was going on online ends here rather than running on
- * against an account that is gone. Hosting or joining backs out to where it
- * started; a game that is still being played is left, as with Leave; a
- * finished one stays on the board for review. Returns whether anything ended.
- */
-function closeOnlineForSignOut() {
-  if (!session) return false;
-  if (!session.connected) {
-    cancelOnlineSetup();
-    return true;
-  }
-  session.leave();
-  session = null;
-  rematchOffered = false;
-  if (gameFinished()) {
-    onlineUiState = 'ended';
-    closeDialogs();
-    renderAll();
-  } else {
-    opponentName = null;
-    closeDialogs();
-    enterOnlineIdle();
-  }
-  return true;
-}
-
-/** The element signed out by itself. */
+/** Signed out with a room open: put the online tab back to where it starts. */
 function handleSignedOut() {
-  if (!closeOnlineForSignOut()) return;
-  const text = 'You signed out, so the online game was closed.';
+  if (!roomGame.code) return; // nothing was open
+  const inPlay = onlineUiState === 'playing' && !gameFinished();
+  enterOnlineIdle();
+  const text = inPlay
+    ? '你已退出登录，这一局不再刷新。钟会继续走。'
+    : '你已退出登录。';
   showToast(text);
   els.srStatus.textContent = text;
-}
-
-/** The element signed in: the online tab can get ready as it would have. */
-function handleSignedIn() {
-  if (mode === 'online') warmUpOnline();
 }
 
 /* ------------------------------------------------------------------ */
@@ -2199,17 +2317,13 @@ els.newGameBtn.addEventListener('click', requestNewGame);
 els.undoBtn.addEventListener('click', undoTurn);
 els.resignBtn.addEventListener('click', requestResign);
 els.leaveBtn.addEventListener('click', requestLeave);
-els.rematchBtn.addEventListener('click', offerRematch);
-els.gameoverNew.addEventListener('click', () => {
-  if (mode === 'online') offerRematch();
-  else newGame();
-});
+els.gameoverNew.addEventListener('click', newGame); // hidden in online mode
 els.gameoverClose.addEventListener('click', () => els.gameoverDialog.close());
 
-els.hostBtn.addEventListener('click', createGame);
+els.hostBtn.addEventListener('click', createRoom);
 els.joinForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  joinGame(els.joinInput.value);
+  joinRoom(els.joinInput.value);
 });
 els.copyCodeBtn.addEventListener('click', copyInviteCode);
 els.copyLinkBtn.addEventListener('click', copyInviteLink);
@@ -2234,7 +2348,7 @@ els.timeSelect.addEventListener('change', () => {
   // clock on the board at once rather than making the player press New game
   // to see the choice they just made.
   if (mode !== 'online' && !gameFinished() && game.history().length === 0) {
-    resetClock(timeSetting);
+    resetClock(timeControl(timeSetting));
   }
   renderAll();
 });
@@ -2279,28 +2393,6 @@ els.confirmDialog.addEventListener('close', () => {
   confirmAction = null;
 });
 
-els.rematchAccept.addEventListener('click', () => {
-  rematchAnswered = true;
-  els.rematchDialog.close();
-  if (session?.connected) {
-    session.sendRematchAccept();
-    startRematch();
-  }
-});
-els.rematchDecline.addEventListener('click', () => {
-  rematchAnswered = true;
-  els.rematchDialog.close();
-  session?.sendRematchDecline();
-});
-// Dismissing the offer any other way (Escape, backdrop) declines it, so the
-// other player is never left waiting.
-els.rematchDialog.addEventListener('close', () => {
-  if (!rematchAnswered) {
-    rematchAnswered = true;
-    session?.sendRematchDecline();
-  }
-});
-
 // Clicking the backdrop dismisses a dialog. Backdrop clicks target the dialog
 // element itself but land outside its box; padding clicks land inside it.
 function closeOnBackdropClick(dialog) {
@@ -2316,13 +2408,12 @@ function closeOnBackdropClick(dialog) {
 closeOnBackdropClick(els.promoDialog);
 closeOnBackdropClick(els.gameoverDialog);
 closeOnBackdropClick(els.confirmDialog);
-closeOnBackdropClick(els.rematchDialog);
 closeOnBackdropClick(els.accountDialog);
 
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  // Escape in the account menu closes that menu and nothing else.
-  if (inUserMenu(e.target)) return;
+  // Escape in the account panel closes that panel and nothing else.
+  if (e.target instanceof Element && e.target.closest('#account-dialog')) return;
   // Dialogs close natively on Escape; handle them here too so the shortcut
   // cannot be lost, and so Escape means "close dialog" before "deselect".
   if (els.promoDialog.open) {
@@ -2331,8 +2422,6 @@ window.addEventListener('keydown', (e) => {
     els.gameoverDialog.close();
   } else if (els.confirmDialog.open) {
     els.confirmDialog.close();
-  } else if (els.rematchDialog.open) {
-    els.rematchDialog.close();
   } else if (els.accountDialog.open) {
     els.accountDialog.close();
   } else if (selected) {
@@ -2350,7 +2439,6 @@ function anyDialogOpen() {
     els.promoDialog.open ||
     els.gameoverDialog.open ||
     els.confirmDialog.open ||
-    els.rematchDialog.open ||
     els.accountDialog.open
   );
 }
@@ -2361,10 +2449,7 @@ function anyDialogOpen() {
 window.addEventListener('keydown', (e) => {
   if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
   if (anyDialogOpen()) return;
-  if (
-    e.target instanceof Element &&
-    e.target.closest(`#board, input, select, textarea, ${USER_MENU_TAG}`)
-  ) {
+  if (e.target instanceof Element && e.target.closest('#board, input, select, textarea')) {
     return;
   }
   const plies = viewPlies();
@@ -2378,37 +2463,36 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 
-// Best-effort goodbye so the other player hears about it right away instead
-// of waiting for the connection to time out.
+// The page is going away, or into the back/forward cache. There is no goodbye
+// to send: the room stays as it is, clock and all. So the two things worth
+// doing are stop asking about it, and stop the local countdown — a page frozen
+// for ten minutes should not come back ten minutes down, and `pagehide` is the
+// only moment that knows the page is leaving.
 window.addEventListener('pagehide', () => {
-  session?.leave();
-  // Stop charging before the page goes: one heading into the back/forward
-  // cache is frozen and one being unloaded is gone, and neither should cost
-  // the player the time it spends there. Settling first also means the save
-  // below records the clock as it actually stood.
+  stopRoomPolling();
   clock.setRunning(null);
   stopClockTimer();
   saveNow();
 });
 
-// A tab put into the background may never be looked at again — store the clock
-// where it stands rather than leaving the reading from the last move.
+// Hidden: a tab put in the background may never be looked at again, so store
+// the clock where it stands rather than at the last move. Shown again: the
+// timers were throttled while we were away, so ask what happened rather than
+// wait for the next poll to get round to it.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) saveNow();
+  else if (mode === 'online' && roomGame.code) pollRoom();
 });
 
-// Restored from the back/forward cache: pagehide already said goodbye, so the
-// session object is dead — reflect that instead of showing stale state. The
-// render also picks the clock back up where pagehide put it down.
+// Back from the back/forward cache: the room is still ours but pagehide stopped
+// watching it, and the clocks have been frozen for as long as the page was put
+// away. One poll says what happened in the meantime; the render picks the clock
+// back up where pagehide left it.
 window.addEventListener('pageshow', (e) => {
   if (!e.persisted) return;
-  if (session) {
-    session = null;
-    rematchOffered = false;
-    if (mode === 'online') {
-      onlineUiState = onlineUiState === 'playing' ? 'ended' : 'idle';
-      showToast('The connection was closed when you left the page.');
-    }
+  if (mode === 'online' && roomGame.code && ['hosting', 'playing'].includes(onlineUiState)) {
+    startRoomPolling();
+    pollRoom();
   }
   renderAll();
 });
@@ -2420,13 +2504,14 @@ window.addEventListener('pageshow', (e) => {
 buildTimeOptions();
 loadSettings();
 applyTheme();
-// The SDK arrives with online play, if at all; the account menu comes with it.
-whenPuterLoaded(showUserMenu);
-// The ichessgeek account panel is ours and always on; it has nothing to do
-// with the Puter SDK menu above, which this build never loads.
-mountAccount({ showToast });
 
-if (!restoreGame()) {
-  // Nothing to pick up (or what was stored no longer replays): start fresh.
-  newGame();
-}
+// An invite link is a room code in the address bar. Arriving through one lands
+// on the online tab with the code already in the box — but the player still has
+// to press 进入, so a link that was not meant for them cannot seat them in a
+// stranger's game. This does not go into the settings: the next plain visit to
+// the board opens whatever mode they last chose.
+const invited = normalizeCode(window.location.hash);
+if (invited) mode = 'online';
+
+if (mode === 'online') enterOnlineIdle({ inviteCode: invited });
+else if (!restoreGame()) newGame(); // nothing stored, or what is stored no longer replays

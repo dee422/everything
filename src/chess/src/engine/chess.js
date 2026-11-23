@@ -558,18 +558,35 @@ export class Chess {
   }
 
   /**
-   * Make a move given `{from, to, promotion}` (algebraic squares). Returns the
-   * verbose move (including `san`) or null if the move is illegal.
+   * Make a move given `{from, to, promotion}` (algebraic squares) or a SAN
+   * string. Returns the verbose move (including `san`) or null if the move is
+   * illegal.
+   *
+   * The string form is how a move written down somewhere else gets played: a
+   * server's event list, or a PGN. It is matched by generating the legal moves
+   * and writing each one out, so only a SAN this engine itself would print can
+   * match — "Nxd2" and "Nxd2+" are different strings, and only the one the
+   * position actually calls for is accepted.
    */
-  move({ from, to, promotion = 'q' } = {}) {
-    const fromIdx = squareToIndex(from);
-    const toIdx = squareToIndex(to);
+  move(move = {}) {
     const legal = this._legalMoves();
+    if (typeof move === 'string') {
+      const found = legal.find((m) => this._moveToSan(m, legal) === move);
+      if (!found) return null;
+      move = {
+        from: indexToSquare(found.from),
+        to: indexToSquare(found.to),
+        promotion: found.promotion || 'q',
+      };
+    }
+    const fromIdx = squareToIndex(move.from);
+    const toIdx = squareToIndex(move.to);
+    const wanted = move.promotion ?? 'q';
     const m = legal.find(
       (o) =>
         o.from === fromIdx &&
         o.to === toIdx &&
-        (o.promotion === null || o.promotion === promotion),
+        (o.promotion === null || o.promotion === wanted),
     );
     if (!m) return null;
 

@@ -6,37 +6,57 @@
  * the browser attaches the cookie by itself.
  *
  * Every failure carries a stable `code` (see CHESS_ERRORS in the backend's
- * chess_guard.php), and the sentence shown here is looked up from that code.
- * The API answers in Chinese because its other readers are Chinese pages; this
- * panel is part of an English board, so it words the same codes in English
- * instead of pasting the server's text into the middle of it. An unknown code
- * becomes a generic line rather than leaking a foreign-language string.
+ * chess_guard.php), and the sentence shown here is looked up from that code
+ * rather than pasted from the server. The two wordings are independent on
+ * purpose: the API's own text is written for the Chinese pages beside this one
+ * and says things like "操作失败", while the board speaks to a player sitting in
+ * front of a chess position and wants to say which field to fix. An unknown
+ * code lands on the generic line, so a renamed code shows a plain "出了点问题"
+ * instead of a sentence from another part of the site.
  */
 
 export const API_BASE = '/api/v1/';
 
 const PROBLEM_TEXT = {
-  bad_email: 'That email address doesn’t look right.',
-  short_nickname: 'A nickname needs at least two characters.',
-  short_password: 'Use at least 8 characters.',
-  long_password: 'That password is too long.',
-  weak_password: 'That password is too easy to guess — try another.',
-  missing_fields: 'Fill in both the email and the password.',
-  bad_credentials: 'Email or password is not right.',
-  sign_in_required: 'Sign in first.',
-  no_such_player: 'That account is no longer there.',
-  too_many_logins: 'Too many failed tries. Wait 15 minutes and try again.',
+  bad_email: '这个邮箱地址看着不太对。',
+  short_nickname: '昵称至少两个字。',
+  short_password: '密码至少 8 位。',
+  long_password: '密码太长了。',
+  weak_password: '这个密码太容易被猜到，换一个。',
+  missing_fields: '邮箱和密码都要填。',
+  bad_credentials: '邮箱或密码不对。',
+  sign_in_required: '请先登录。',
+  no_such_player: '这个账号已经不在了。',
+  too_many_logins: '失败次数太多，请 15 分钟后再试。',
   too_many_registrations:
-    'Too many accounts opened from this network just now. Try again in an hour, or write to admin@ichessgeek.com.',
-  too_many_sends: 'Too many emails sent from here. Try again in an hour.',
-  mail_failed: 'The email could not be sent. Please write to admin@ichessgeek.com.',
-  method: 'The browser could not send that. Please try again.',
-  content_type: 'The browser could not send that. Please try again.',
-  bad_body: 'The browser could not send that. Please try again.',
-  service: 'The server is not answering. Try again in a minute.',
-  verify_failed: 'Verification is not available right now. Try again in a minute.',
-  network: 'Could not reach the server. Check your connection and try again.',
-  server: 'Something went wrong. Please try again.',
+    '这个网络这一小时注册的次数太多了。请一小时后再试，或写信到 admin@ichessgeek.com。',
+  too_many_sends: '这一小时从这里发的邮件太多了，稍后再试。',
+  mail_failed: '邮件发不出去，请联系 admin@ichessgeek.com。',
+  method: '浏览器没能把这一步发出去，请再试一次。',
+  content_type: '浏览器没能把这一步发出去，请再试一次。',
+  bad_body: '浏览器没能把这一步发出去，请再试一次。',
+  service: '服务器暂时没响应，过一分钟再试。',
+  verify_failed: '验证暂时不可用，请稍后再试。',
+  network: '连不上服务器。请检查网络后再试。',
+  server: '出了点问题，请再试一次。',
+
+  // Rooms. The referee's codes, worded for the player looking at the board.
+  verify_required:
+    '先把邮箱确认了 —— 我们发你的那封邮件里的链接，点一下就能和人下棋。',
+  bad_room_code: '这不是房间码：六位字母和数字，中间不要空格。',
+  no_such_room: '没有这个房间码的对局。请核对一下再试。',
+  room_full: '这一局已经坐满两个人了。',
+  room_not_active: '这一局现在不走棋。',
+  room_over: '这一局已经结束了。',
+  not_room_member: '这一局里没有你。',
+  not_your_turn: '该对方走棋了。',
+  illegal_move: '这一步在当前的局面上不合法。',
+  flagged: '有一边的钟走完了，这一局已经结束。',
+  stale_move: '你这一步落下去之前，局面已经往前走了。',
+  bad_room_time: '一局的时间在一方 10 秒到 1 小时之间。',
+  bad_room_color: '请选白方、黑方或随机。',
+  too_many_rooms: '你刚刚开好几局了。请一小时后再试。',
+  too_many_joins: '短时间内试的房间码太多，等几分钟再试。',
 };
 
 /**
@@ -56,7 +76,7 @@ export function problemText(reply) {
  * `status` field ('created' or 'submitted'), and a number from here would
  * replace it.
  */
-async function call(endpoint, { method = 'POST', body, fetchImpl } = {}) {
+export async function call(endpoint, { method = 'POST', body, fetchImpl } = {}) {
   const fetchJson = fetchImpl ?? globalThis.fetch;
   const init = { method, credentials: 'same-origin' };
   if (body !== undefined) {
@@ -110,19 +130,16 @@ export function makeAccountApi({ fetchImpl } = {}) {
 export function verifyNews(search) {
   const kind = new URLSearchParams(search ?? '').get('verify');
   if (kind === 'ok') {
-    return { verified: true, text: 'Email confirmed. You can close this tab now.' };
+    return { verified: true, text: '邮箱已经确认好了。这个标签页可以关了。' };
   }
   if (kind === 'already') {
-    return { verified: true, text: 'That email was already confirmed.' };
+    return { verified: true, text: '这个邮箱之前已经确认过了。' };
   }
   if (kind === 'expired') {
-    return {
-      verified: false,
-      text: 'That link has expired. Press Resend email for a new one.',
-    };
+    return { verified: false, text: '那个链接已经过期了。请回棋盘按「重发邮件」。' };
   }
   if (kind === 'bad') {
-    return { verified: false, text: 'That link is not one of ours.' };
+    return { verified: false, text: '那个链接不是我们发出来的。' };
   }
   return null;
 }

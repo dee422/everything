@@ -188,9 +188,9 @@ describe('formatClock', () => {
 
 describe('speakClock', () => {
   it('reads a clock out in words', () => {
-    expect(speakClock(300000)).toBe('5 minutes');
-    expect(speakClock(61000)).toBe('1 minute 1 second');
-    expect(speakClock(9400)).toBe('9 seconds');
-    expect(speakClock(0)).toBe('0 seconds');
+    expect(speakClock(300000)).toBe('5分钟');
+    expect(speakClock(61000)).toBe('1分钟1秒');
+    expect(speakClock(9400)).toBe('9秒');
+    expect(speakClock(0)).toBe('0秒');
   });
 });

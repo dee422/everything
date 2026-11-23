@@ -131,7 +131,7 @@ describe('on load', () => {
     mount();
     await settled();
     expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/chess_me.php');
-    expect(nodes.get('account-chip-label').textContent).toBe('Sign in');
+    expect(nodes.get('account-chip-label').textContent).toBe('登录');
     expect(nodes.get('account-flag').hidden).toBe(true);
     expect(nodes.get('verify-card').classList.contains('hidden')).toBe(true);
   });
@@ -144,7 +144,7 @@ describe('on load', () => {
     await settled();
     // The board still works; a dead API must not look like a broken game.
     expect(toasts).toEqual([]);
-    expect(nodes.get('account-chip-label').textContent).toBe('Sign in');
+    expect(nodes.get('account-chip-label').textContent).toBe('登录');
   });
 });
 
@@ -156,7 +156,7 @@ describe('the chip opens the right pane', () => {
     const dialog = nodes.get('account-dialog');
     nodes.get('account-chip').emit('click');
     expect(dialog.open).toBe(true);
-    expect(nodes.get('account-title').textContent).toBe('Sign in');
+    expect(nodes.get('account-title').textContent).toBe('登录');
     expect(nodes.get('signin-pane').classList.contains('hidden')).toBe(false);
     expect(nodes.get('signup-pane').classList.contains('hidden')).toBe(true);
     expect(nodes.get('account-pane').classList.contains('hidden')).toBe(true);
@@ -174,10 +174,10 @@ describe('the chip opens the right pane', () => {
     mount();
     await settled();
     nodes.get('account-chip').emit('click');
-    expect(nodes.get('account-title').textContent).toBe('Your account');
+    expect(nodes.get('account-title').textContent).toBe('我的账号');
     expect(nodes.get('account-tabs').classList.contains('hidden')).toBe(true);
     expect(nodes.get('account-name').textContent).toBe('Joe');
-    expect(nodes.get('account-state').textContent).toBe('Email confirmed.');
+    expect(nodes.get('account-state').textContent).toBe('邮箱已确认。');
   });
 
   it('switches panes without leaving the other pane’s error on screen', async () => {
@@ -186,7 +186,7 @@ describe('the chip opens the right pane', () => {
     await settled();
     nodes.get('account-chip').emit('click');
     const error = nodes.get('signin-error');
-    error.textContent = 'Email or password is not right.';
+    error.textContent = '邮箱或密码不对。';
     error.hidden = false;
     tabs[1].emit('click');
     expect(nodes.get('signup-pane').classList.contains('hidden')).toBe(false);
@@ -219,7 +219,7 @@ describe('signing in', () => {
       email: 'joe@example.com',
       password: 'Knight2026!',
     });
-    expect(nodes.get('signin-error').textContent).toBe('Email or password is not right.');
+    expect(nodes.get('signin-error').textContent).toBe('邮箱或密码不对。');
     expect(nodes.get('signin-error').hidden).toBe(false);
     expect(nodes.get('account-dialog').open).toBe(true);
   });
@@ -242,7 +242,7 @@ describe('signing in', () => {
     expect(nodes.get('signin-password').value).toBe('');
     expect(nodes.get('account-dialog').open).toBe(false);
     expect(nodes.get('account-chip-label').textContent).toBe('Joe');
-    expect(toasts).toEqual(['Signed in as Joe.']);
+    expect(toasts).toEqual(['已登录为 Joe。']);
   });
 
   it('locks the buttons while the request is out', async () => {
@@ -315,7 +315,7 @@ describe('creating an account', () => {
     nodes.get('signup-pane').emit('submit', { preventDefault: vi.fn() });
     await settled();
     expect(nodes.get('verify-error').textContent).toBe(
-      'The confirmation email did not go out. Press Resend email.',
+      '确认邮件没能发出去。请按「重发邮件」。',
     );
     expect(nodes.get('verify-error').hidden).toBe(false);
   });
@@ -334,10 +334,10 @@ describe('creating an account', () => {
     await settled();
 
     expect(toasts).toEqual([
-      'Done. If that address is new, a confirmation email is on its way.',
+      '好了。如果这个邮箱是新注册的，确认邮件已经在路上。',
     ]);
     // Nobody is signed in, and nothing says whether the address was known.
-    expect(nodes.get('account-chip-label').textContent).toBe('Sign in');
+    expect(nodes.get('account-chip-label').textContent).toBe('登录');
     expect(nodes.get('verify-card').classList.contains('hidden')).toBe(true);
   });
 
@@ -354,7 +354,7 @@ describe('creating an account', () => {
     nodes.get('signup-pane').emit('submit', { preventDefault: vi.fn() });
     await settled();
     expect(nodes.get('signup-error').textContent).toBe(
-      'That password is too easy to guess — try another.',
+      '这个密码太容易被猜到，换一个。',
     );
     expect(nodes.get('account-dialog').open).toBe(true);
   });
@@ -379,10 +379,10 @@ describe('signing out', () => {
     nodes.get('account-chip').emit('click');
     nodes.get('account-signout-btn').emit('click');
     await settled();
-    expect(nodes.get('account-chip-label').textContent).toBe('Sign in');
+    expect(nodes.get('account-chip-label').textContent).toBe('登录');
     expect(nodes.get('account-dialog').open).toBe(false);
-    expect(nodes.get('account-title').textContent).toBe('Sign in');
-    expect(toasts.at(-1)).toBe('Signed out.');
+    expect(nodes.get('account-title').textContent).toBe('登录');
+    expect(toasts.at(-1)).toBe('已退出登录。');
   });
 });
 
@@ -402,7 +402,7 @@ describe('the confirmation email', () => {
     await settled();
     nodes.get('resend-btn').emit('click');
     await settled();
-    expect(toasts.at(-1)).toBe('Confirmation email sent — check the junk folder too.');
+    expect(toasts.at(-1)).toBe('确认邮件已发出 —— 垃圾箱也看一眼。');
     expect(nodes.get('verify-error').hidden).toBe(true);
   });
 
@@ -422,7 +422,7 @@ describe('the confirmation email', () => {
     nodes.get('resend-btn').emit('click');
     await settled();
     expect(nodes.get('verify-error').textContent).toBe(
-      'The email could not be sent. Please write to admin@ichessgeek.com.',
+      '邮件发不出去，请联系 admin@ichessgeek.com。',
     );
   });
 
@@ -430,7 +430,7 @@ describe('the confirmation email', () => {
     fetchImpl = vi.fn(async () => jsonReply({ ok: true, signed_in: false }));
     mount({ search: '?verify=ok' });
     await settled();
-    expect(toasts).toEqual(['Email confirmed. You can close this tab now.']);
+    expect(toasts).toEqual(['邮箱已经确认好了。这个标签页可以关了。']);
     expect(replaceState).toHaveBeenCalledWith(null, '', '/chess/');
   });
 

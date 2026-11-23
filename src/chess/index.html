@@ -1,27 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Play chess for free, right in your browser. Challenge the computer at three levels, or pass & play with a friend on one device." />
+    <meta name="description" content="浏览器里直接下国际象棋，免费。三个难度和电脑对弈，或者两个人用一台设备同屏对弈，也可以报个房间码和朋友在线对弈。" />
     <link rel="canonical" href="https://www.ichessgeek.com/chess/" />
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Chess" />
+    <meta property="og:site_name" content="国际象棋" />
     <meta property="og:url" content="https://www.ichessgeek.com/chess/" />
-    <meta property="og:title" content="Play Chess Online — vs the Computer or a Friend" />
-    <meta property="og:description" content="Play chess for free, right in your browser. Challenge the computer at three levels, or pass & play on one device." />
+    <meta property="og:title" content="在线下国际象棋 —— 和电脑，或者和朋友" />
+    <meta property="og:description" content="浏览器里直接下国际象棋，免费。三个难度和电脑对弈、同屏对弈，或者用房间码和朋友在线对弈。" />
     <!-- 1200x630 (1.91:1) is the ratio Facebook, LinkedIn, Slack, and X's
          large card all render. Built from tools/og-image.html. -->
     <meta property="og:image" content="https://www.ichessgeek.com/chess/og-image.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Play Chess Online — free in your browser. A chess board showing a checkmate position." />
+    <meta property="og:image:alt" content="在线下国际象棋 —— 浏览器里免费。一张走出将死的棋盘。" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Play Chess Online — vs the Computer or a Friend" />
-    <meta name="twitter:description" content="Play chess for free, right in your browser. Challenge the computer at three levels, or pass & play on one device." />
+    <meta name="twitter:title" content="在线下国际象棋 —— 和电脑，或者和朋友" />
+    <meta name="twitter:description" content="浏览器里直接下国际象棋，免费。三个难度和电脑对弈、同屏对弈，或者用房间码和朋友在线对弈。" />
     <meta name="twitter:image" content="https://www.ichessgeek.com/chess/og-image.png" />
-    <meta name="twitter:image:alt" content="Play Chess Online — free in your browser. A chess board showing a checkmate position." />
+    <meta name="twitter:image:alt" content="在线下国际象棋 —— 浏览器里免费。一张走出将死的棋盘。" />
     <link rel="icon" href="favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
@@ -29,19 +29,19 @@
     <link rel="manifest" href="site.webmanifest" />
     <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#13151b" media="(prefers-color-scheme: dark)" />
-    <title>Play Chess Online — vs the Computer or a Friend</title>
+    <title>在线下国际象棋 —— 和电脑，或者和朋友</title>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": ["WebApplication", "VideoGame"],
-        "name": "Chess — Play Online",
+        "name": "国际象棋 —— 在线对弈",
         "url": "https://www.ichessgeek.com/chess/",
-        "description": "Play chess for free, right in your browser. Challenge the computer at three levels, or pass & play with a friend on one device.",
+        "description": "浏览器里直接下国际象棋，免费。三个难度和电脑对弈，或者两个人用一台设备同屏对弈，也可以报个房间码和朋友在线对弈。",
         "applicationCategory": "GameApplication",
-        "operatingSystem": "Any",
-        "browserRequirements": "Requires JavaScript",
-        "genre": "Board game",
-        "gamePlatform": "Web browser",
+        "operatingSystem": "任何系统",
+        "browserRequirements": "需要 JavaScript",
+        "genre": "棋类",
+        "gamePlatform": "网页浏览器",
         "playMode": ["SinglePlayer", "MultiPlayer"],
         "image": "https://www.ichessgeek.com/chess/icon-512.png",
         "offers": {
@@ -76,33 +76,32 @@
   <body>
     <noscript>
       <p class="noscript-note">
-        This chess game runs entirely in your browser and needs JavaScript to
-        work. Enable JavaScript to play against the computer, or pass &amp; play
-        with a friend on one device.
+        这副棋盘完全在浏览器里运行，需要开启 JavaScript 才能用。
+        开启之后就能和电脑对弈，或者两个人用一台设备同屏对弈。
       </p>
     </noscript>
     <div id="app">
       <header class="topbar">
-        <a class="brand" href="/" aria-label="Chess — back to the ichessgeek.com home page">
+        <a class="brand" href="/" aria-label="国际象棋 —— 返回 ichessgeek.com 首页">
           <span class="brand-back" aria-hidden="true">←</span>
           <span class="brand-mark"><img src="icon-128.png" alt="" width="128" height="128" /></span>
-          <h1 class="brand-name">Chess<span class="visually-hidden"> — play the computer or a friend, free in your browser</span></h1>
+          <h1 class="brand-name">国际象棋<span class="visually-hidden"> —— 和电脑或朋友下棋，浏览器里免费</span></h1>
         </a>
         <div class="topbar-right">
-          <span class="topbar-note" id="topbar-note">Player vs. Computer</span>
+          <span class="topbar-note" id="topbar-note">电脑对弈</span>
           <button class="account-chip" id="account-chip" type="button" aria-haspopup="dialog" aria-controls="account-dialog">
             <i data-lucide="user"></i>
-            <span class="account-chip-name" id="account-chip-label">Sign in</span>
-            <span class="account-flag" id="account-flag" title="Email not confirmed yet" aria-hidden="true" hidden>!</span>
+            <span class="account-chip-name" id="account-chip-label">登录</span>
+            <span class="account-flag" id="account-flag" title="邮箱还没确认" aria-hidden="true" hidden>!</span>
           </button>
-          <div class="theme-toggle" role="group" aria-label="Theme">
-            <button type="button" data-theme-choice="light" title="Light theme" aria-label="Light theme">
+          <div class="theme-toggle" role="group" aria-label="主题">
+            <button type="button" data-theme-choice="light" title="浅色主题" aria-label="浅色主题">
               <i data-lucide="sun"></i>
             </button>
-            <button type="button" data-theme-choice="dark" title="Dark theme" aria-label="Dark theme">
+            <button type="button" data-theme-choice="dark" title="深色主题" aria-label="深色主题">
               <i data-lucide="moon"></i>
             </button>
-            <button type="button" data-theme-choice="system" title="Follow system theme" aria-label="Follow system theme">
+            <button type="button" data-theme-choice="system" title="跟随系统主题" aria-label="跟随系统主题">
               <i data-lucide="monitor"></i>
             </button>
           </div>
@@ -112,87 +111,89 @@
       <main class="layout">
         <section class="board-column">
           <div class="board-frame">
-            <div id="board" class="board" role="grid" aria-label="Chess board"></div>
+            <div id="board" class="board" role="grid" aria-label="国际象棋棋盘"></div>
           </div>
         </section>
 
         <aside class="sidebar">
-          <div class="mode-switch" role="group" aria-label="Game mode">
+          <div class="mode-switch" role="group" aria-label="对弈模式">
             <button type="button" data-mode="computer" aria-pressed="true">
-              <i data-lucide="cpu"></i>Computer
+              <i data-lucide="cpu"></i>电脑
             </button>
             <button type="button" data-mode="local" aria-pressed="false">
-              <i data-lucide="users"></i>Pass &amp; Play
+              <i data-lucide="users"></i>同屏
+            </button>
+            <button type="button" data-mode="online" aria-pressed="false">
+              <i data-lucide="globe"></i>在线
             </button>
           </div>
 
           <div id="result-banner" class="result-banner hidden"></div>
 
-          <section class="card online-card hidden" id="online-card" aria-label="Online game setup">
+          <section class="card online-card hidden" id="online-card" aria-label="在线对弈设置">
             <div class="online-section" id="online-idle">
-              <h2 class="card-title">Play a friend</h2>
+              <h2 class="card-title">和朋友下一局</h2>
               <p class="online-note" id="online-invite-note" hidden>
-                You&rsquo;ve been invited to a game — press Join to connect.
+                有人约你对弈 —— 按「进入」就能坐下。
               </p>
               <button class="btn btn-primary btn-block" id="host-btn" type="button">
-                <i data-lucide="plus"></i><span id="host-btn-label">Create game</span>
+                <i data-lucide="plus"></i><span id="host-btn-label">开一局</span>
               </button>
-              <div class="online-divider" aria-hidden="true"><span>or join with a code</span></div>
+              <div class="online-divider" aria-hidden="true"><span>或者用房间码加入</span></div>
               <form class="join-row" id="join-form">
-                <label class="visually-hidden" for="join-input">Invite code</label>
-                <!-- Invite codes are served uppercase and the peer API matches
-                     them exactly, so a phone keyboard that starts in lowercase
-                     costs the player a failed join. Ask for capitals. -->
+                <label class="visually-hidden" for="join-input">房间码</label>
+                <!-- Room codes are six characters from an alphabet with no I, O,
+                     0 or 1, and served uppercase. The referee folds case, but a
+                     phone keyboard that starts in lowercase shows the player a
+                     code that does not look like the one they were sent. -->
                 <input
                   id="join-input"
                   name="code"
-                  placeholder="Invite code"
+                  placeholder="房间码"
                   autocomplete="off"
                   autocapitalize="characters"
                   autocorrect="off"
                   spellcheck="false"
                 />
-                <button class="btn btn-ghost" id="join-btn" type="submit">Join</button>
+                <button class="btn btn-ghost" id="join-btn" type="submit">进入</button>
               </form>
               <p class="online-error" id="online-error" role="alert" hidden></p>
             </div>
 
             <div class="online-section hidden" id="online-hosting">
-              <h2 class="card-title">Invite your friend</h2>
+              <h2 class="card-title">把房间码发给朋友</h2>
               <div class="invite-box">
                 <code class="invite-code" id="invite-code"></code>
-                <button class="icon-btn" id="copy-code-btn" type="button" title="Copy invite code" aria-label="Copy invite code">
+                <button class="icon-btn" id="copy-code-btn" type="button" title="复制房间码" aria-label="复制房间码">
                   <i data-lucide="copy" class="icon-copy"></i>
                   <i data-lucide="check" class="icon-check hidden"></i>
                 </button>
               </div>
               <button class="btn btn-primary btn-block" id="copy-link-btn" type="button">
-                <i data-lucide="link"></i><span id="copy-link-label">Copy invite link</span>
+                <i data-lucide="link"></i><span id="copy-link-label">复制邀请链接</span>
               </button>
-              <p class="online-wait"><span class="spinner" aria-hidden="true"></span>Waiting for your friend to join…</p>
-              <button class="btn btn-ghost btn-block" id="cancel-host-btn" type="button">Cancel</button>
+              <p class="online-wait"><span class="spinner" aria-hidden="true"></span>正在等对方进来……</p>
+              <button class="btn btn-ghost btn-block" id="cancel-host-btn" type="button">取消</button>
             </div>
 
             <div class="online-section hidden" id="online-joining">
-              <h2 class="card-title">Joining game</h2>
-              <p class="online-wait"><span class="spinner" aria-hidden="true"></span>Connecting to your friend…</p>
-              <button class="btn btn-ghost btn-block" id="cancel-join-btn" type="button">Cancel</button>
+              <h2 class="card-title">正在进入对局</h2>
+              <p class="online-wait"><span class="spinner" aria-hidden="true"></span>正在连到对方的房间……</p>
+              <button class="btn btn-ghost btn-block" id="cancel-join-btn" type="button">取消</button>
             </div>
           </section>
 
           <!-- Shown only for a signed-in player whose email is not confirmed
-               yet — the one thing this panel can still ask them to do. -->
+               yet: the one thing standing between them and a game online. -->
           <section class="card verify-card hidden" id="verify-card" aria-labelledby="verify-title">
-            <h2 class="card-title" id="verify-title">Check your inbox</h2>
-            <!-- Online play is not in this build yet, so this says what
-                 confirming does today rather than promising a button that
-                 isn't there. -->
+            <h2 class="card-title" id="verify-title">去邮箱确认一下</h2>
             <p class="verify-note">
-              Click the link in the email we sent to
+              点一下我们发给
               <span class="verify-mail" id="verify-email"></span>
-              to confirm your account. Games against the computer work either way.
+              的那封邮件里的链接，把账号确认了。确认之后才能和人在线对弈；
+              和电脑下棋不用确认也能玩。
             </p>
-            <button class="btn btn-ghost btn-block" id="resend-btn" type="button">Resend email</button>
+            <button class="btn btn-ghost btn-block" id="resend-btn" type="button">重发邮件</button>
             <p class="online-error" id="verify-error" role="alert" hidden></p>
           </section>
 
@@ -203,8 +204,8 @@
             </span>
             <div class="player-info">
               <p class="player-line">
-                <span class="player-name" id="top-name">Computer</span>
-                <span class="player-note" id="top-caption">Medium</span>
+                <span class="player-name" id="top-name">电脑</span>
+                <span class="player-note" id="top-caption">中级</span>
                 <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
               </p>
               <p class="player-taken">
@@ -220,30 +221,30 @@
 
           <section class="card moves-card" id="moves-card">
             <div class="card-head">
-              <h2 class="card-title">Moves</h2>
+              <h2 class="card-title">走法</h2>
               <div class="card-actions">
-                <button class="icon-btn icon-btn-sm" id="pgn-copy-btn" type="button" title="Copy the game as PGN" aria-label="Copy the game as PGN" disabled>
+                <button class="icon-btn icon-btn-sm" id="pgn-copy-btn" type="button" title="复制 PGN 棋谱" aria-label="复制 PGN 棋谱" disabled>
                   <i data-lucide="clipboard-copy"></i>
                 </button>
-                <button class="icon-btn icon-btn-sm" id="pgn-download-btn" type="button" title="Download the game as a PGN file" aria-label="Download the game as a PGN file" disabled>
+                <button class="icon-btn icon-btn-sm" id="pgn-download-btn" type="button" title="下载 PGN 文件" aria-label="下载 PGN 文件" disabled>
                   <i data-lucide="download"></i>
                 </button>
               </div>
             </div>
             <ol class="move-list" id="move-list"></ol>
-            <p class="moves-empty" id="moves-empty">No moves yet — White begins.</p>
+            <p class="moves-empty" id="moves-empty">还没有走法 —— 白方先走。</p>
             <div class="review-bar">
-              <div class="review-nav" role="group" aria-label="Review the game">
-                <button class="icon-btn icon-btn-sm" id="review-first-btn" type="button" title="Starting position" aria-label="Go to the starting position" disabled>
+              <div class="review-nav" role="group" aria-label="回看棋局">
+                <button class="icon-btn icon-btn-sm" id="review-first-btn" type="button" title="开局局面" aria-label="回到开局局面" disabled>
                   <i data-lucide="chevron-first"></i>
                 </button>
-                <button class="icon-btn icon-btn-sm" id="review-prev-btn" type="button" title="Previous move" aria-label="Go back one move" disabled>
+                <button class="icon-btn icon-btn-sm" id="review-prev-btn" type="button" title="上一步" aria-label="回看上一步" disabled>
                   <i data-lucide="chevron-left"></i>
                 </button>
-                <button class="icon-btn icon-btn-sm" id="review-next-btn" type="button" title="Next move" aria-label="Go forward one move" disabled>
+                <button class="icon-btn icon-btn-sm" id="review-next-btn" type="button" title="下一步" aria-label="前进到下一步" disabled>
                   <i data-lucide="chevron-right"></i>
                 </button>
-                <button class="icon-btn icon-btn-sm" id="review-last-btn" type="button" title="Current position" aria-label="Return to the current position" disabled>
+                <button class="icon-btn icon-btn-sm" id="review-last-btn" type="button" title="最新局面" aria-label="回到最新局面" disabled>
                   <i data-lucide="chevron-last"></i>
                 </button>
               </div>
@@ -255,8 +256,8 @@
             <span class="player-icon"><i data-lucide="user"></i></span>
             <div class="player-info">
               <p class="player-line">
-                <span class="player-name" id="bottom-name">You</span>
-                <span class="player-note" id="bottom-caption">Playing White</span>
+                <span class="player-name" id="bottom-name">你</span>
+                <span class="player-note" id="bottom-caption">执白</span>
               </p>
               <p class="player-taken">
                 <span class="caps" id="captures-bottom"></span>
@@ -270,47 +271,44 @@
           <section class="controls" id="controls">
             <div class="field-row" id="field-row">
               <label class="field" id="level-field">
-                <span class="field-label">Difficulty</span>
+                <span class="field-label">难度</span>
                 <select id="level-select">
-                  <option value="easy">Easy</option>
-                  <option value="medium" selected>Medium</option>
-                  <option value="hard">Hard</option>
+                  <option value="easy">入门</option>
+                  <option value="medium" selected>中级</option>
+                  <option value="hard">高级</option>
                 </select>
               </label>
               <label class="field" id="time-field">
-                <span class="field-label">Clock</span>
+                <span class="field-label">时限</span>
                 <!-- Options are built from TIME_CONTROLS in src/game/clock.js,
                      so the ids that cross the wire and land in saved games
                      have exactly one definition. -->
                 <select id="time-select"></select>
               </label>
               <label class="field" id="color-field">
-                <span class="field-label" id="color-label">Play as</span>
+                <span class="field-label" id="color-label">执子</span>
                 <select id="color-select">
-                  <option value="w" selected>White</option>
-                  <option value="b">Black</option>
-                  <option value="random">Random</option>
+                  <option value="w" selected>白方</option>
+                  <option value="b">黑方</option>
+                  <option value="random">随机</option>
                 </select>
               </label>
             </div>
             <div class="button-row" id="button-row">
               <button class="btn btn-primary" id="new-game-btn" type="button">
-                <i data-lucide="plus"></i>New game
+                <i data-lucide="plus"></i>新的一局
               </button>
               <button class="btn btn-ghost" id="undo-btn" type="button" disabled>
-                <i data-lucide="undo-2"></i>Undo
-              </button>
-              <button class="btn btn-primary hidden" id="rematch-btn" type="button">
-                <i data-lucide="rotate-ccw"></i><span id="rematch-label">Rematch</span>
+                <i data-lucide="undo-2"></i>悔棋
               </button>
               <button class="btn btn-ghost btn-danger hidden" id="resign-btn" type="button">
-                <i data-lucide="flag"></i>Resign
+                <i data-lucide="flag"></i>认输
               </button>
               <button class="btn btn-ghost hidden" id="leave-btn" type="button">
-                <i data-lucide="log-out"></i>Leave
+                <i data-lucide="log-out"></i>离开
               </button>
             </div>
-            <p class="controls-hint" id="controls-hint">Color takes effect when a new game starts.</p>
+            <p class="controls-hint" id="controls-hint">颜色和时限在开始新的一局时生效。</p>
           </section>
         </aside>
       </main>
@@ -323,12 +321,12 @@
     <div class="toast" id="toast" role="status"></div>
 
     <dialog class="dialog promo-dialog" id="promo-dialog" aria-labelledby="promo-title">
-      <h2 class="dialog-title" id="promo-title">Promote to</h2>
+      <h2 class="dialog-title" id="promo-title">升变成</h2>
       <div class="promo-choices">
-        <button type="button" data-promo="q" autofocus><img alt="Queen" /></button>
-        <button type="button" data-promo="r"><img alt="Rook" /></button>
-        <button type="button" data-promo="b"><img alt="Bishop" /></button>
-        <button type="button" data-promo="n"><img alt="Knight" /></button>
+        <button type="button" data-promo="q" autofocus><img alt="后" /></button>
+        <button type="button" data-promo="r"><img alt="车" /></button>
+        <button type="button" data-promo="b"><img alt="象" /></button>
+        <button type="button" data-promo="n"><img alt="马" /></button>
       </div>
     </dialog>
 
@@ -336,11 +334,11 @@
       <span class="gameover-icon" id="gameover-icon-win"><i data-lucide="trophy"></i></span>
       <span class="gameover-icon" id="gameover-icon-loss"><i data-lucide="flag"></i></span>
       <span class="gameover-icon" id="gameover-icon-draw"><i data-lucide="handshake"></i></span>
-      <h2 class="dialog-title" id="gameover-title">Game over</h2>
+      <h2 class="dialog-title" id="gameover-title">对局结束</h2>
       <p class="dialog-sub" id="gameover-sub"></p>
       <div class="dialog-buttons">
-        <button class="btn btn-primary" id="gameover-new" type="button" autofocus>New game</button>
-        <button class="btn btn-ghost" id="gameover-close" type="button">Review board</button>
+        <button class="btn btn-primary" id="gameover-new" type="button" autofocus>新的一局</button>
+        <button class="btn btn-ghost" id="gameover-close" type="button">回看棋盘</button>
       </div>
     </dialog>
 
@@ -349,25 +347,16 @@
       <p class="dialog-sub" id="confirm-sub"></p>
       <div class="dialog-buttons">
         <button class="btn btn-danger-solid" id="confirm-yes" type="button"></button>
-        <button class="btn btn-ghost" id="confirm-no" type="button" autofocus>Cancel</button>
-      </div>
-    </dialog>
-
-    <dialog class="dialog" id="rematch-dialog" aria-labelledby="rematch-title" aria-describedby="rematch-sub">
-      <h2 class="dialog-title" id="rematch-title">Rematch?</h2>
-      <p class="dialog-sub" id="rematch-sub"></p>
-      <div class="dialog-buttons">
-        <button class="btn btn-primary" id="rematch-accept" type="button" autofocus>Accept</button>
-        <button class="btn btn-ghost" id="rematch-decline" type="button">Decline</button>
+        <button class="btn btn-ghost" id="confirm-no" type="button" autofocus>取消</button>
       </div>
     </dialog>
 
     <dialog class="dialog account-dialog" id="account-dialog" aria-labelledby="account-title">
-      <h2 class="dialog-title" id="account-title">Sign in</h2>
+      <h2 class="dialog-title" id="account-title">登录</h2>
 
-      <div class="account-tabs" role="group" aria-label="Sign in or create an account" id="account-tabs">
-        <button type="button" data-pane="signin" class="selected" aria-pressed="true">Sign in</button>
-        <button type="button" data-pane="signup" aria-pressed="false">Create account</button>
+      <div class="account-tabs" role="group" aria-label="登录或注册" id="account-tabs">
+        <button type="button" data-pane="signin" class="selected" aria-pressed="true">登录</button>
+        <button type="button" data-pane="signup" aria-pressed="false">注册</button>
       </div>
 
       <!-- novalidate: a browser's own "please fill out this field" bubble comes
@@ -375,35 +364,35 @@
            panel already has for it. The server checks everything anyway. -->
       <form class="account-pane" id="signin-pane" novalidate>
         <label class="field">
-          <span class="field-label">Email</span>
+          <span class="field-label">邮箱</span>
           <input id="signin-email" name="email" type="email" autocomplete="username" spellcheck="false" />
         </label>
         <label class="field">
-          <span class="field-label">Password</span>
+          <span class="field-label">密码</span>
           <input id="signin-password" name="password" type="password" autocomplete="current-password" />
         </label>
         <p class="online-error" id="signin-error" role="alert" hidden></p>
-        <button class="btn btn-primary btn-block" id="signin-btn" type="submit">Sign in</button>
+        <button class="btn btn-primary btn-block" id="signin-btn" type="submit">登录</button>
       </form>
 
       <form class="account-pane hidden" id="signup-pane" novalidate>
         <label class="field">
-          <span class="field-label">Nickname</span>
+          <span class="field-label">昵称</span>
           <!-- The server caps the nickname at 30 characters; the field says so
                up front rather than letting a long name be quietly cut. -->
           <input id="signup-nickname" name="nickname" maxlength="30" autocomplete="nickname" />
         </label>
         <label class="field">
-          <span class="field-label">Email</span>
+          <span class="field-label">邮箱</span>
           <input id="signup-email" name="email" type="email" autocomplete="username" spellcheck="false" />
         </label>
         <label class="field">
-          <span class="field-label">Password</span>
+          <span class="field-label">密码</span>
           <input id="signup-password" name="password" type="password" autocomplete="new-password" />
         </label>
-        <p class="account-hint">At least 8 characters. We email a link to confirm the address — you can play right away.</p>
+        <p class="account-hint">至少 8 位。我们会发一封邮件确认这个地址 —— 现在就能开始下棋。</p>
         <p class="online-error" id="signup-error" role="alert" hidden></p>
-        <button class="btn btn-primary btn-block" id="signup-btn" type="submit">Create account</button>
+        <button class="btn btn-primary btn-block" id="signup-btn" type="submit">注册</button>
       </form>
 
       <div class="account-pane hidden" id="account-pane">
@@ -412,9 +401,9 @@
         <p class="account-state" id="account-state"></p>
         <div class="dialog-buttons">
           <button class="btn btn-ghost" id="account-signout-btn" type="button">
-            <i data-lucide="log-out"></i>Sign out
+            <i data-lucide="log-out"></i>退出登录
           </button>
-          <button class="btn btn-primary" id="account-close-btn" type="button">Close</button>
+          <button class="btn btn-primary" id="account-close-btn" type="button">关闭</button>
         </div>
       </div>
     </dialog>

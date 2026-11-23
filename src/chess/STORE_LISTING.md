@@ -16,8 +16,9 @@ pick a clock, and play.
 There are three ways to play. The computer plays at Easy, Medium, or Hard, so
 there is a game whether you are learning how the pieces move or looking for a
 real fight. Pass and play hands one device back and forth between two people.
-Online play creates a private game you share with a code or a link, with resign
-and rematch built in.
+Online play makes a game with a short code you send to a friend; both of you
+sign in to an ichessgeek.com account with a confirmed email, and either side
+can resign.
 
 Every rule is enforced by a chess engine written for this app and checked
 against reference test positions: castling, en passant, promotion, checkmate,
@@ -33,15 +34,16 @@ against the computer or in pass and play is saved as you go, so a reload or a
 closed tab picks up where you left off, clocks included.
 
 Games against the computer and pass and play games run entirely on your device.
-Online games connect the two players directly and are set up through a Puter
-sign in.
+Online games go through this site's own server, which holds the position,
+judges every move against its own engine, and keeps both clocks — so a tab that
+drops out comes back to the game as it actually stands.
 
 ## Key features
 
 - Beat the computer at three difficulty levels, from an Easy that is kind to
   beginners to a Hard that punishes loose play.
-- Play a friend on one device with pass and play, or send an invite code or link
-  for a private online game, complete with resign and rematch.
+- Play a friend on one device with pass and play, or send them a code or link
+  and play an online game with the server keeping the score.
 - Set the clock you want: eight time controls from 1 + 0 bullet to 15 + 10
   rapid, with Fischer increments, or play with no limit at all.
 - Move by click, tap, or drag, with legal move hints, last move and check
