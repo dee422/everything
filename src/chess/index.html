@@ -112,6 +112,72 @@
       </header>
 
       <main class="layout">
+        <aside class="sidebar sidebar-left">
+          <section class="card moves-card" id="moves-card">
+            <div class="card-head">
+              <h2 class="card-title">走法</h2>
+              <div class="card-actions">
+                <button class="icon-btn icon-btn-sm" id="pgn-copy-btn" type="button" title="复制 PGN 棋谱" aria-label="复制 PGN 棋谱" disabled>
+                  <i data-lucide="clipboard-copy"></i>
+                </button>
+                <button class="icon-btn icon-btn-sm" id="pgn-download-btn" type="button" title="下载 PGN 文件" aria-label="下载 PGN 文件" disabled>
+                  <i data-lucide="download"></i>
+                </button>
+                <button class="icon-btn icon-btn-sm" id="library-btn" type="button" title="棋谱库：下过的局都在这里" aria-label="打开棋谱库">
+                  <i data-lucide="library"></i>
+                </button>
+              </div>
+            </div>
+            <div class="review-bar">
+              <div class="review-nav" role="group" aria-label="回看棋局">
+                <button class="icon-btn icon-btn-sm" id="review-first-btn" type="button" title="开局局面" aria-label="回到开局局面" disabled>
+                  <i data-lucide="chevron-first"></i>
+                </button>
+                <button class="icon-btn icon-btn-sm" id="review-prev-btn" type="button" title="上一步" aria-label="回看上一步" disabled>
+                  <i data-lucide="chevron-left"></i>
+                </button>
+                <button class="icon-btn icon-btn-sm" id="review-next-btn" type="button" title="下一步" aria-label="前进到下一步" disabled>
+                  <i data-lucide="chevron-right"></i>
+                </button>
+                <button class="icon-btn icon-btn-sm" id="review-last-btn" type="button" title="最新局面" aria-label="回到最新局面" disabled>
+                  <i data-lucide="chevron-last"></i>
+                </button>
+              </div>
+              <p class="review-note" id="review-note"></p>
+              <div class="review-modes">
+                <button class="btn btn-ghost analysis-toggle" id="analysis-btn" type="button" aria-pressed="false">
+                  <i data-lucide="activity"></i>分析
+                </button>
+                <button class="btn btn-ghost review-toggle" id="review-game-btn" type="button" disabled>
+                  <i data-lucide="scan-search"></i>复盘
+                </button>
+                <button class="btn btn-ghost tactics-toggle" id="tactics-btn" type="button" aria-pressed="false">
+                  <i data-lucide="target"></i>题库
+                </button>
+              </div>
+            </div>
+            <ol class="move-list" id="move-list"></ol>
+            <p class="moves-empty" id="moves-empty">还没有走法 —— 白方先走。</p>
+            <section class="analysis hidden" id="analysis-panel" aria-label="引擎评估">
+              <div class="eval-row">
+                <div class="eval-bar" aria-hidden="true"><span class="eval-fill" id="eval-fill"></span></div>
+                <span class="eval-score" id="eval-score"></span>
+              </div>
+              <ol class="eval-lines" id="eval-lines"></ol>
+              <p class="eval-note" id="eval-note"></p>
+            </section>
+            <section class="review-progress-section hidden" id="review-progress-section">
+              <div id="review-progress-container"></div>
+            </section>
+            <section class="review-section hidden" id="review-result-panel" aria-label="复盘报告">
+              <div id="review-panel-container"></div>
+            </section>
+            <section class="tactics-section hidden" id="tactics-panel-section" aria-label="题库练习">
+              <div id="tactics-panel-container"></div>
+            </section>
+          </section>
+        </aside>
+
         <section class="board-column">
           <div class="board-frame">
             <div id="board" class="board" role="grid" aria-label="国际象棋棋盘"></div>
@@ -288,75 +354,6 @@
                  is what a value changing ten times a second wants to be. -->
             <span class="clock hidden" id="clock-top" role="timer"></span>
             <span class="turn-dot" aria-hidden="true"></span>
-          </section>
-
-          <section class="card moves-card" id="moves-card">
-            <div class="card-head">
-              <h2 class="card-title">走法</h2>
-              <div class="card-actions">
-                <button class="icon-btn icon-btn-sm" id="pgn-copy-btn" type="button" title="复制 PGN 棋谱" aria-label="复制 PGN 棋谱" disabled>
-                  <i data-lucide="clipboard-copy"></i>
-                </button>
-                <button class="icon-btn icon-btn-sm" id="pgn-download-btn" type="button" title="下载 PGN 文件" aria-label="下载 PGN 文件" disabled>
-                  <i data-lucide="download"></i>
-                </button>
-                <button class="icon-btn icon-btn-sm" id="library-btn" type="button" title="棋谱库：下过的局都在这里" aria-label="打开棋谱库">
-                  <i data-lucide="library"></i>
-                </button>
-              </div>
-            </div>
-            <ol class="move-list" id="move-list"></ol>
-            <p class="moves-empty" id="moves-empty">还没有走法 —— 白方先走。</p>
-            <div class="review-bar">
-              <div class="review-nav" role="group" aria-label="回看棋局">
-                <button class="icon-btn icon-btn-sm" id="review-first-btn" type="button" title="开局局面" aria-label="回到开局局面" disabled>
-                  <i data-lucide="chevron-first"></i>
-                </button>
-                <button class="icon-btn icon-btn-sm" id="review-prev-btn" type="button" title="上一步" aria-label="回看上一步" disabled>
-                  <i data-lucide="chevron-left"></i>
-                </button>
-                <button class="icon-btn icon-btn-sm" id="review-next-btn" type="button" title="下一步" aria-label="前进到下一步" disabled>
-                  <i data-lucide="chevron-right"></i>
-                </button>
-                <button class="icon-btn icon-btn-sm" id="review-last-btn" type="button" title="最新局面" aria-label="回到最新局面" disabled>
-                  <i data-lucide="chevron-last"></i>
-                </button>
-              </div>
-              <p class="review-note" id="review-note"></p>
-              <!-- Off until asked for, because the engine that fills this is
-                   1,845,971 bytes and takes 10-20 seconds to arrive on this
-                   site's connection. Nothing else on the page waits for it.
-                   Its title and its disabled state both come from main.js on
-                   every render, because whether it is allowed depends on the
-                   game: an engine has no business at the board while someone
-                   is waiting for their turn online. -->
-              <button class="btn btn-ghost analysis-toggle" id="analysis-btn" type="button" aria-pressed="false">
-                <i data-lucide="activity"></i>分析
-              </button>
-              <button class="btn btn-ghost review-toggle" id="review-game-btn" type="button" disabled>
-                <i data-lucide="scan-search"></i>复盘
-              </button>
-              <button class="btn btn-ghost tactics-toggle" id="tactics-btn" type="button" aria-pressed="false">
-                <i data-lucide="target"></i>题库
-              </button>
-            </div>
-            <section class="analysis hidden" id="analysis-panel" aria-label="引擎评估">
-              <div class="eval-row">
-                <div class="eval-bar" aria-hidden="true"><span class="eval-fill" id="eval-fill"></span></div>
-                <span class="eval-score" id="eval-score"></span>
-              </div>
-              <ol class="eval-lines" id="eval-lines"></ol>
-              <p class="eval-note" id="eval-note"></p>
-            </section>
-            <section class="review-progress-section hidden" id="review-progress-section">
-              <div id="review-progress-container"></div>
-            </section>
-            <section class="review-section hidden" id="review-result-panel" aria-label="复盘报告">
-              <div id="review-panel-container"></div>
-            </section>
-            <section class="tactics-section hidden" id="tactics-panel-section" aria-label="题库练习">
-              <div id="tactics-panel-container"></div>
-            </section>
           </section>
 
           <section class="card player-card" id="card-bottom">

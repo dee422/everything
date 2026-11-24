@@ -949,12 +949,24 @@ async function analyzePosition(plies, position) {
   }
 }
 
-async function ensureEngine(token) {
+async function ensureEngine(token, onNote = null) {
   if (engine) return engine;
   if (!engineStarting) {
     els.evalNote.textContent = ENGINE_LOAD_NOTE;
+    onNote?.(ENGINE_LOAD_NOTE);
     engineStarting = createStockfish({
-      onProgress: (progress) => showDownloadProgress(token, progress),
+      onProgress: (progress) => {
+        showDownloadProgress(token, progress);
+        if (onNote) {
+          const pct = progress?.percent ? Math.min(99, Math.round(progress.percent * 100)) : 0;
+          onNote(pct ? `正在下载引擎 ${pct}%` : ENGINE_LOAD_NOTE);
+        }
+      },
+    }).catch((err) => {
+      // A failed download must not poison every later attempt: drop the
+      // rejected promise so the next click starts a fresh download.
+      engineStarting = null;
+      throw err;
     });
   }
   const controller = await engineStarting;
@@ -1021,6 +1033,9 @@ function canReview() {
 function updateReviewButton() {
   const enabled = canReview() && !reviewAnalyzing;
   els.reviewGameBtn.disabled = !enabled;
+  els.reviewGameBtn.title = enabled
+    ? '用 Stockfish 逐手分析这盘棋'
+    : (game.history().length === 0 ? '先走几步棋，或导入一局棋谱，才能复盘' : '在线对弈中不能复盘');
 }
 
 /** 开始复盘分析。 */
@@ -1035,12 +1050,13 @@ async function startReview() {
   els.reviewResultPanel.classList.add('hidden');
   reviewProgress = mountReviewProgress(els.reviewProgressContainer);
 
-  // 收集所有局面的 FEN
-  const history = game.history({ verbose: true });
-  const fens = [game.fen()]; // 起始局面
-  const tempGame = new Chess();
-  for (const move of history) {
-    fens.push(move.after);
+  // Every position the game passed through, replayed the same way the review
+  // timeline shows them, so the engine and the board agree on which ply a
+  // score belongs to.
+  const history = game.history();
+  const fens = [];
+  for (let ply = 0; ply <= history.length; ply++) {
+    fens.push(positionAt(ply).fen());
   }
 
   // 收集 UCI 格式的走法
@@ -1048,10 +1064,11 @@ async function startReview() {
 
   try {
     // 确保引擎已加载
-    const controller = await ensureEngine(analysisToken);
+    const controller = await ensureEngine(analysisToken, (note) => reviewProgress?.setText(note));
     if (!controller) {
       throw new Error('无法加载分析引擎');
     }
+    reviewProgress?.setText('正在分析...');
 
     // 批量分析
     const results = await analyzeGame(controller, fens, moves, {

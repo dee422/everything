@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildPgn,
+  buildAnnotatedPgn,
   bundleFilename,
   bundlePgn,
   pgnDate,
@@ -182,5 +183,103 @@ describe('a bundle of games', () => {
     // The count is what keeps a second export of the same minute from being
     // silently renamed to "…(1).pgn" by the browser.
     expect(bundleFilename(DATE, 1)).not.toBe(pgnFilename(DATE));
+  });
+});
+
+describe('buildAnnotatedPgn', () => {
+  const annotatedBase = {
+    ...base,
+    sans: ['e4', 'e5', 'Nf3', 'Nc6'],
+    result: '*',
+  };
+
+  it('includes an Annotator tag when review data is provided', () => {
+    const pgn = buildAnnotatedPgn({
+      ...annotatedBase,
+      review: {
+        results: [
+          { classification: 'best', evalAfter: 30 },
+          { classification: 'good', evalAfter: 20 },
+          { classification: 'best', evalAfter: 35 },
+          { classification: 'good', evalAfter: 25 },
+        ],
+      },
+    });
+    expect(pgn).toContain('[Annotator "Stockfish (复盘分析)"]');
+  });
+
+  it('adds NAG codes for move classifications', () => {
+    const pgn = buildAnnotatedPgn({
+      ...annotatedBase,
+      review: {
+        results: [
+          { classification: 'best', evalAfter: 30 },
+          { classification: 'blunder', evalAfter: -200 },
+          { classification: 'mistake', evalAfter: -100 },
+          { classification: 'inaccuracy', evalAfter: -50 },
+        ],
+      },
+    });
+    // $3 = excellent/best, $4 = blunder, $2 = mistake, $6 = inaccuracy
+    expect(pgn).toContain('$3');
+    expect(pgn).toContain('$4');
+    expect(pgn).toContain('$2');
+    expect(pgn).toContain('$6');
+  });
+
+  it('adds eval comments in PGN format', () => {
+    const pgn = buildAnnotatedPgn({
+      ...annotatedBase,
+      review: {
+        results: [
+          { classification: 'best', evalAfter: 45 },
+          { classification: 'good', evalAfter: -123 },
+          { classification: 'best', evalAfter: 1000 },
+          { classification: 'good', evalAfter: -1000 },
+        ],
+      },
+    });
+    expect(pgn).toContain('[%eval +0.45]');
+    expect(pgn).toContain('[%eval -1.23]');
+    expect(pgn).toContain('[%eval +M]');
+    expect(pgn).toContain('[%eval -M]');
+  });
+
+  it('produces valid PGN structure with tags and movetext', () => {
+    const pgn = buildAnnotatedPgn({
+      ...annotatedBase,
+      review: {
+        results: [
+          { classification: 'best', evalAfter: 30 },
+          { classification: 'good', evalAfter: 20 },
+        ],
+      },
+    });
+    // Should have tag section and movetext section separated by blank line
+    const parts = pgn.split('\n\n');
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    expect(parts[0]).toContain('[Event');
+    expect(parts[0]).toContain('[Annotator');
+  });
+
+  it('works without review data (falls back to plain PGN)', () => {
+    const pgn = buildAnnotatedPgn(annotatedBase);
+    expect(pgn).toContain('[Annotator "Stockfish (复盘分析)"]');
+    expect(moveText(pgn)).toBe('1. e4 e5 2. Nf3 Nc6 *');
+  });
+
+  it('handles partial review data gracefully', () => {
+    const pgn = buildAnnotatedPgn({
+      ...annotatedBase,
+      review: {
+        results: [
+          { classification: 'best', evalAfter: 30 },
+          // Missing data for other moves
+        ],
+      },
+    });
+    // Should not throw, just annotate what's available
+    expect(pgn).toContain('$3');
+    expect(pgn).toContain('[%eval +0.30]');
   });
 });

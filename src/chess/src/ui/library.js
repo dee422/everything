@@ -51,7 +51,7 @@ function opponentText(entry) {
     return label ? `电脑（${label}）` : '电脑';
   }
   if (entry.mode === 'online') return `${entry.white} 对 ${entry.black}`;
-  return '同屏两人';
+  return '课堂两人';
 }
 
 function scoreLine(entry) {

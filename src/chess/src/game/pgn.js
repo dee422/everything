@@ -137,3 +137,107 @@ export function bundlePgn(games) {
 export function bundleFilename(date, count) {
   return `chess-${stamp(date)}-${count}games.pgn`;
 }
+
+/**
+ * NAG (Numeric Annotation Glyph) codes for move classifications.
+ * These are standard PGN annotation codes that chess programs understand.
+ */
+const NAG = {
+  blunder: '$4',      // Blunder
+  mistake: '$2',      // Mistake
+  inaccuracy: '$6',   // Inaccuracy
+  good: '$1',         // Good move
+  best: '$3',         // Excellent move
+};
+
+/**
+ * Build an annotated PGN with review analysis.
+ *
+ * @param {{
+ *   sans: string[],
+ *   result: string,
+ *   white: string, black: string,
+ *   date: Date,
+ *   control?: {initial: number, increment: number}|null,
+ *   termination?: string,
+ *   event?: string, site?: string,
+ *   review?: {
+ *     results: Array<{ classification: string, loss?: number, evalBefore?: number, evalAfter?: number }>,
+ *   },
+ * }} game
+ */
+export function buildAnnotatedPgn({
+  sans,
+  result,
+  white,
+  black,
+  date,
+  control = null,
+  termination = 'normal',
+  event = 'Casual game',
+  site = 'www.ichessgeek.com/chess',
+  review,
+}) {
+  const tags = [
+    ['Event', event],
+    ['Site', site],
+    ['Date', pgnDate(date)],
+    ['Round', '-'],
+    ['White', white],
+    ['Black', black],
+    ['Result', result],
+    ['TimeControl', timeControlTag(control)],
+    ['Annotator', 'Stockfish (复盘分析)'],
+  ];
+  if (termination && termination !== 'normal') tags.push(['Termination', termination]);
+
+  const header = tags.map(([key, value]) => `[${key} "${tagValue(value)}"]`).join('\n');
+
+  // Build annotated movetext
+  const tokens = [];
+  sans.forEach((san, i) => {
+    if (i % 2 === 0) tokens.push(`${i / 2 + 1}.`);
+    tokens.push(san);
+
+    // Add review annotations if available
+    if (review?.results?.[i]) {
+      const r = review.results[i];
+
+      // Add NAG for classification
+      if (r.classification && NAG[r.classification]) {
+        tokens.push(NAG[r.classification]);
+      }
+
+      // Add eval comment
+      if (r.evalAfter !== undefined) {
+        const evalStr = formatEvalForPgn(r.evalAfter);
+        tokens.push(`{ [%eval ${evalStr}] }`);
+      }
+    }
+  });
+  tokens.push(result);
+
+  // Wrap at LINE_WIDTH
+  const lines = [];
+  let line = '';
+  for (const token of tokens) {
+    if (line && line.length + 1 + token.length > LINE_WIDTH) {
+      lines.push(line);
+      line = token;
+    } else {
+      line = line ? `${line} ${token}` : token;
+    }
+  }
+  if (line) lines.push(line);
+
+  return `${header}\n\n${lines.join('\n')}\n`;
+}
+
+/** Format eval for PGN comment: +0.45 or -1.23 */
+function formatEvalForPgn(cp) {
+  if (Math.abs(cp) >= 1000) {
+    return cp > 0 ? '+M' : '-M';
+  }
+  const sign = cp >= 0 ? '+' : '';
+  return `${sign}${(cp / 100).toFixed(2)}`;
+}
