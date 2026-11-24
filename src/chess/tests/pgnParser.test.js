@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parsePgn, parseFen, detectFormat } from '../src/game/pgnParser.js';
+import { parsePgn, parseFen, detectFormat, startFenFromTags } from '../src/game/pgnParser.js';
+import { Chess } from '../src/engine/chess.js';
 
 describe('parsePgn', () => {
   it('parses a minimal PGN', () => {
@@ -125,5 +126,53 @@ describe('detectFormat', () => {
 
   it('returns unknown for invalid input', () => {
     expect(detectFormat('random text')).toBe('unknown');
+  });
+});
+
+describe('startFenFromTags', () => {
+  const ENDGAME = '8/6pk/8/7p/4K2P/5P2/8/8 b - - 3 61';
+
+  it('没有 FEN 标签时交回标准开局', () => {
+    expect(startFenFromTags({ Event: 'Test' })).toBeNull();
+    expect(startFenFromTags({})).toBeNull();
+    expect(startFenFromTags(null)).toBeNull();
+  });
+
+  it('认 SetUp 1 配的 FEN', () => {
+    expect(startFenFromTags({ SetUp: '1', FEN: ENDGAME })).toBe(ENDGAME);
+  });
+
+  it('漏了 SetUp 也照用 FEN —— 忽略它等于把整盘分析挪到别的局面上', () => {
+    expect(startFenFromTags({ FEN: ENDGAME })).toBe(ENDGAME);
+  });
+
+  it('只在明确写了 SetUp 0 时才放弃', () => {
+    expect(startFenFromTags({ SetUp: '0', FEN: ENDGAME })).toBeNull();
+  });
+
+  it('四段写法的 FEN 也认', () => {
+    const four = ENDGAME.split(' ').slice(0, 4).join(' ');
+    expect(startFenFromTags({ FEN: four })).toBe(four);
+  });
+
+  it('字段数不对、行棋方不对、缺棋盘的都不算', () => {
+    expect(startFenFromTags({ FEN: 'random text' })).toBeNull();
+    expect(startFenFromTags({ FEN: '8/8/8/4k3/8/8/8/4K3' })).toBeNull();
+    expect(startFenFromTags({ FEN: '8/8/8/4k3/8/8/8/4K3 x - - 0 1' })).toBeNull();
+    expect(startFenFromTags({ FEN: '8/8/8/4k3/8/8/8/4K3 w - - 0 1 extra' })).toBeNull();
+  });
+
+  it('从一整份带 FEN 头的棋谱里取出开局位置，引擎接得住', () => {
+    const pgn = `[Event "Endgame drill"]
+[SetUp "1"]
+[FEN "${ENDGAME}"]
+[Result "*"]
+
+1... g6 2. Kf4 *`;
+    const parsed = parsePgn(pgn);
+    const fen = startFenFromTags(parsed.tags);
+    expect(fen).toBe(ENDGAME);
+    expect(new Chess(fen).fen()).toBe(fen);
+    expect(parsed.moves).toEqual(['g6', 'Kf4']);
   });
 });

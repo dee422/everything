@@ -70,6 +70,7 @@ function movetext(sans, result) {
  *   control?: {initial: number, increment: number}|null,
  *   termination?: string,           PGN Termination, omitted when "normal"
  *   event?: string, site?: string,
+ *   startFen?: string|null,         开局不是标准局时写进 SetUp + FEN，省略则不写
  * }} game
  */
 export function buildPgn({
@@ -82,6 +83,7 @@ export function buildPgn({
   termination = 'normal',
   event = 'Casual game',
   site = 'www.ichessgeek.com/chess',
+  startFen = null,
 }) {
   const tags = [
     ['Event', event],
@@ -96,6 +98,9 @@ export function buildPgn({
   // Termination is optional and "normal" is the default reading, so only a
   // game that ended some other way is worth spelling out.
   if (termination && termination !== 'normal') tags.push(['Termination', termination]);
+  // A game that did not start from the usual position has to say so, or the
+  // file re-imports as a different game than the one it recorded.
+  if (startFen) tags.push(['SetUp', '1'], ['FEN', startFen]);
 
   const header = tags.map(([key, value]) => `[${key} "${tagValue(value)}"]`).join('\n');
   return `${header}\n\n${movetext(sans, result)}\n`;
@@ -161,6 +166,7 @@ const NAG = {
  *   control?: {initial: number, increment: number}|null,
  *   termination?: string,
  *   event?: string, site?: string,
+ *   startFen?: string|null,         开局不是标准局时写进 SetUp + FEN
  *   review?: {
  *     results: Array<{ classification: string, loss?: number, evalBefore?: number, evalAfter?: number }>,
  *   },
@@ -176,6 +182,7 @@ export function buildAnnotatedPgn({
   termination = 'normal',
   event = 'Casual game',
   site = 'www.ichessgeek.com/chess',
+  startFen = null,
   review,
 }) {
   const tags = [
@@ -190,6 +197,7 @@ export function buildAnnotatedPgn({
     ['Annotator', 'Stockfish (复盘分析)'],
   ];
   if (termination && termination !== 'normal') tags.push(['Termination', termination]);
+  if (startFen) tags.push(['SetUp', '1'], ['FEN', startFen]);
 
   const header = tags.map(([key, value]) => `[${key} "${tagValue(value)}"]`).join('\n');
 

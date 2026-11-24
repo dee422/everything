@@ -41,13 +41,14 @@ import {
   Target,
 } from 'lucide';
 
-import { Chess, colorOf } from './engine/chess.js';
+import { Chess, colorOf, START_FEN } from './engine/chess.js';
 import { chooseMove, LEVELS } from './engine/ai.js';
 import { createStockfish, scoreToCentipawns } from './engine/stockfish.js';
 import { canAnalyze, evalPercent, formatLine, formatScore, pvToSan } from './game/analysis.js';
 import { BoardView, pieceUrl, pieceLabel } from './ui/boardView.js';
 import { AnnotationOverlay } from './ui/annotations.js';
-import { parsePgn, parseFen, detectFormat } from './game/pgnParser.js';
+import { parsePgn, parseFen, detectFormat, startFenFromTags } from './game/pgnParser.js';
+import { fenCore, positionAt as replayFrom, replayFens } from './game/position.js';
 import { RoomGame, normalizeCode, POLL_MS, ROOM_MAX_TIME_MS } from './net/room.js';
 import { ClassSession, normalizeClassCode, CLASS_POLL_MS } from './net/classroom.js';
 import { problemText } from './net/auth.js';
@@ -246,6 +247,24 @@ const NO_TARGETS = new Map();
 /* ------------------------------------------------------------------ */
 
 const game = new Chess();
+/**
+ * 这一盘是从哪个局面开走的。导入带 [FEN] 的棋谱、或课堂里从残局摆开时，它就不是
+ * 标准开局，而复盘和时间轴都得按它重放 —— 见 game/position.js。
+ */
+let gameOrigin = START_FEN;
+
+/** 把棋盘放到某个局面，并记住这盘棋由此开始。 */
+function loadBoard(fen) {
+  game.load(fen);
+  gameOrigin = fen;
+}
+
+/** 开新的一盘：回到标准开局。 */
+function resetBoard() {
+  game.reset();
+  gameOrigin = START_FEN;
+}
+
 let mode = 'computer'; // 'computer' | 'local' | 'online'
 let myColor = 'w'; // side controlled at this device (computer & online modes)
 let level = 'medium';
@@ -757,26 +776,18 @@ function clampReview() {
 
 /**
  * The position after `plies` moves of the current game, replayed from the
- * start. A whole game is a few hundred moves and the engine makes short work
- * of them, which is cheaper to keep correct than a cache that would have to be
- * invalidated every time the live game moves on underneath it.
+ * position this game actually started at. A whole game is a few hundred moves
+ * and the engine makes short work of them, which is cheaper to keep correct
+ * than a cache that would have to be invalidated every time the live game
+ * moves on underneath it.
  */
 function positionAt(plies) {
-  const replay = new Chess();
-  const history = game.history();
-  for (let i = 0; i < plies; i++) {
-    replay.move({
-      from: history[i].from,
-      to: history[i].to,
-      promotion: history[i].promotion || 'q',
-    });
-  }
-  return replay;
+  return replayFrom(gameOrigin, game.history(), plies);
 }
 
 /** The position the board is showing: the live game, or an earlier ply. */
 function shownPosition(plies) {
-  return plies === game.history().length ? game : positionAt(plies);
+  return plies === game.history().length ? game : (positionAt(plies) || game);
 }
 
 /** How a ply is written in chess: "12." for White's move, "12…" for Black's. */
@@ -1052,17 +1063,17 @@ async function startReview() {
 
   // Every position the game passed through, replayed the same way the review
   // timeline shows them, so the engine and the board agree on which ply a
-  // score belongs to.
-  const history = game.history();
-  const fens = [];
-  for (let ply = 0; ply <= history.length; ply++) {
-    fens.push(positionAt(ply).fen());
-  }
-
-  // 收集 UCI 格式的走法
-  const moves = history.map((m) => m.from + m.to + (m.promotion || ''));
-
+  // score belongs to. A record that will not replay onto the board the player
+  // is looking at stops here with a word: analysing the wrong positions would
+  // only dress the mistake up as numbers.
   try {
+    const history = game.history();
+    const { fens, error } = replayFens(gameOrigin, history, game.fen());
+    if (error) throw new Error(error);
+
+    // 收集 UCI 格式的走法
+    const moves = history.map((m) => m.from + m.to + (m.promotion || ''));
+
     // 确保引擎已加载
     const controller = await ensureEngine(analysisToken, (note) => reviewProgress?.setText(note));
     if (!controller) {
@@ -1158,7 +1169,7 @@ function toggleTacticsMode() {
         },
         setFen: (fen) => {
           // 设置棋盘局面
-          game.load(fen);
+          loadBoard(fen);
           const plies = renderAll();
           updateTacticsHighlight(plies);
         },
@@ -1242,7 +1253,7 @@ function restoreGame() {
 
   let ok = true;
   try {
-    game.reset();
+    resetBoard();
     for (const move of saved.moves) {
       if (!game.move({ from: move.from, to: move.to, promotion: move.promotion || 'q' })) {
         ok = false;
@@ -1256,7 +1267,7 @@ function restoreGame() {
   // written by something else; don't trust the rest of it either.
   if (ok && game.isGameOver()) ok = false;
   if (!ok) {
-    game.reset();
+    resetBoard();
     clearGame();
     hasSave = false;
     return false;
@@ -1378,7 +1389,7 @@ importConfirm.addEventListener('click', () => {
       return;
     }
     // Load FEN position
-    game.load(result.fen);
+    loadBoard(result.fen);
     reviewIndex = null;
     selected = null;
     targets = NO_TARGETS;
@@ -1391,16 +1402,37 @@ importConfirm.addEventListener('click', () => {
       importError.classList.remove('hidden');
       return;
     }
-    // Load PGN moves
-    game.reset();
+    // [FEN] 说了算：这类棋谱是从棋盘中间某一格开走的，硬按标准开局重放会把
+    // 每一手都记错位置。先在一份草稿上试通整串走法，走通了才动玩家的棋盘，
+    // 免得报一半错留下走过一半的局面。
+    const fenTag = String(result.tags.FEN || '').trim();
+    const startFen = startFenFromTags(result.tags);
+    // 读不懂的 [FEN] 不能当它不存在：棋谱明说了这盘是从中间开走的，退回标准
+    // 开局重放就又回到"每一手都记错位置"那个毛病上。 SetUp "0" 是另一回事，
+    // 它明说了用标准开局，FEN 只是附带的参考。
+    if (fenTag && result.tags.SetUp !== '0' && !startFen) {
+      importError.textContent = 'PGN 的 [FEN] 标签不是合法局面';
+      importError.classList.remove('hidden');
+      return;
+    }
+    let draft;
+    try {
+      draft = new Chess(startFen || START_FEN);
+    } catch {
+      importError.textContent = 'PGN 的 [FEN] 标签不是合法局面';
+      importError.classList.remove('hidden');
+      return;
+    }
     for (const san of result.moves) {
-      const move = game.move(san);
-      if (!move) {
-        importError.textContent = `无效走法: ${san}`;
+      if (!draft.move(san)) {
+        importError.textContent = startFen ? `按 [FEN] 的开局走不通: ${san}` : `无效走法: ${san}`;
         importError.classList.remove('hidden');
         return;
       }
     }
+    if (startFen) loadBoard(startFen);
+    else resetBoard();
+    for (const san of result.moves) game.move(san);
     reviewIndex = null;
     selected = null;
     targets = NO_TARGETS;
@@ -2216,7 +2248,7 @@ function newGame() {
       : 'w';
   manualEnd = null;
   reviewIndex = null;
-  game.reset();
+  resetBoard();
   resetClock(timeControl(timeSetting));
   resetTracking();
   finishPromotion(null);
@@ -2425,7 +2457,7 @@ function enterOnlineIdle({ inviteCode = null } = {}) {
   myColor = 'w';
   manualEnd = null;
   reviewIndex = null;
-  game.reset();
+  resetBoard();
   // No clock until a game exists: an online game runs on the host's control,
   // which this side only learns from the room.
   resetClock(null);
@@ -2594,7 +2626,7 @@ function sitDown(snap, fresh) {
   appliedSeq = 0;
   sentSan = null;
   flagPollDone = false;
-  game.reset();
+  resetBoard();
   resetClock(roomControl(snap.time_ms));
   resetTracking();
   finishPromotion(null);
@@ -2708,7 +2740,7 @@ async function rebuild() {
   if (rebuilding) return;
   rebuilding = true;
   try {
-    game.reset();
+    resetBoard();
     appliedSeq = 0;
     sentSan = null;
     const reply = await roomGame.reread();
@@ -3006,9 +3038,6 @@ const CLASS_HAND_NOTE = {
   approved: '老师让你走一步 —— 现在可以动棋盘了。',
 };
 
-/** A position without its move counters, for asking "are we at the same place?". */
-const fenCore = (fen) => String(fen ?? '').trim().split(/\s+/).slice(0, 4).join(' ');
-
 function setClassError(message) {
   els.classError.textContent = message;
   els.classError.hidden = !message;
@@ -3044,7 +3073,7 @@ function enterClassIdle() {
   reviewIndex = null;
   aiToken++;
   thinking = false;
-  game.reset();
+  resetBoard();
   resetClock(null);
   resetTracking();
   finishPromotion(null);
@@ -3158,7 +3187,7 @@ function sitInClass(cls) {
   resetTracking();
   boardView.setOrientation('w');
   announcedPlies = 0;
-  game.reset();
+  resetBoard();
   classUiState = cls.you?.role === 'teacher' ? 'teaching' : 'spectating';
   // A student joining halfway gets the record with the seat, so the replay here
   // lands on the live position and fills in the scoresheet at the same time.
@@ -3222,7 +3251,7 @@ function classDrifted(cls) {
  * itself, and the one thing nobody in the room should notice happening.
  */
 function rebuildClass(cls) {
-  game.reset();
+  resetBoard();
   for (const event of classSession.events) {
     if (event.type !== 'move') continue;
     const san = event.data?.san;
@@ -3231,7 +3260,7 @@ function rebuildClass(cls) {
   // A list this engine will not replay — or one that has not all arrived yet —
   // leaves the position as the shorter lie, since that is what everyone is
   // looking at. The scoresheet fills in as the polls catch up.
-  if (fenCore(game.fen()) !== fenCore(cls.fen)) game.load(cls.fen);
+  if (fenCore(game.fen()) !== fenCore(cls.fen)) loadBoard(cls.fen);
   classAppliedSeq = classSession.seqSeen();
   classSentSan = null;
   clampReview();
@@ -3440,6 +3469,8 @@ function currentPgn(date) {
     date,
     control: clock.control,
     termination: end ? end.termination : 'unterminated',
+    // 从别的局面开走的棋要把它写进棋谱，不然这份文件再导回来就变成另一盘。
+    startFen: fenCore(gameOrigin) === fenCore(START_FEN) ? null : gameOrigin,
   };
 
   // Use annotated PGN if review data is available

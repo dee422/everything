@@ -193,6 +193,25 @@ export function parseFen(fen) {
 }
 
 /**
+ * 这盘棋的开局位置：[FEN] 标签里那个，没有就用标准开局。
+ *
+ * 按 PGN 标准，带 [FEN] 就该带 [SetUp "1"]；现实里的导出常常漏掉 SetUp，
+ * 而这时候忽略 FEN 会把整盘分析挪到错误的起点上 —— 所以只在明确的
+ * [SetUp "0"] 面前才放弃它。
+ *
+ * @param {Object<string, string>} tags parsePgn 解析出的标签
+ * @returns {string | null} 可用的 FEN，否则 null
+ */
+export function startFenFromTags(tags) {
+  if (!tags || tags.SetUp === '0') return null;
+  const fen = String(tags.FEN || '').trim();
+  const parts = fen.split(/\s+/);
+  if (parts.length < 4 || parts.length > 6) return null;
+  if (!parts[0].includes('/') || !['w', 'b'].includes(parts[1])) return null;
+  return fen;
+}
+
+/**
  * Detect whether a string is PGN or FEN.
  *
  * @param {string} text - the input text

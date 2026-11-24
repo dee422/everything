@@ -8,6 +8,7 @@ import {
   pgnFilename,
 } from '../src/game/pgn.js';
 import { Chess } from '../src/engine/chess.js';
+import { parsePgn, startFenFromTags } from '../src/game/pgnParser.js';
 
 const DATE = new Date(2026, 7, 11, 14, 32); // 11 August 2026, local time
 
@@ -281,5 +282,37 @@ describe('buildAnnotatedPgn', () => {
     // Should not throw, just annotate what's available
     expect(pgn).toContain('$3');
     expect(pgn).toContain('[%eval +0.30]');
+  });
+});
+
+describe('a game that did not start from the usual position', () => {
+  const ENDGAME = '8/6pk/8/7p/4K2P/5P2/8/8 b - - 3 61';
+
+  it('writes SetUp and FEN only when given a start position', () => {
+    expect(tags(buildPgn(base)).map(([key]) => key)).not.toContain('FEN');
+    const pairs = tags(buildPgn({ ...base, startFen: ENDGAME }));
+    expect(pairs).toContainEqual(['SetUp', '1']);
+    expect(pairs).toContainEqual(['FEN', ENDGAME]);
+  });
+
+  it('keeps the movetext itself unchanged', () => {
+    expect(moveText(buildPgn({ ...base, startFen: ENDGAME }))).toBe('1. e4 e5 *');
+  });
+
+  it('carries the same tags through the annotated export', () => {
+    const pgn = buildAnnotatedPgn({
+      ...base,
+      startFen: ENDGAME,
+      review: { results: [{ classification: 'blunder', evalAfter: -180 }] },
+    });
+    const pairs = tags(pgn);
+    expect(pairs).toContainEqual(['SetUp', '1']);
+    expect(pairs).toContainEqual(['FEN', ENDGAME]);
+    expect(moveText(pgn)).toContain('$4');
+  });
+
+  it('survives a round trip back through the parser', () => {
+    const parsed = parsePgn(buildPgn({ ...base, startFen: ENDGAME }));
+    expect(startFenFromTags(parsed.tags)).toBe(ENDGAME);
   });
 });
