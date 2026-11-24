@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），同屏或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。" />
+    <meta name="description" content="给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），课堂或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。" />
     <link rel="canonical" href="https://www.ichessgeek.com/chess/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="国际象棋" />
@@ -39,7 +39,7 @@
         "@type": ["WebApplication", "VideoGame"],
         "name": "国际象棋自学 —— 浏览器里练棋、复盘、导棋谱",
         "url": "https://www.ichessgeek.com/chess/",
-        "description": "给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），同屏或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。",
+        "description": "给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），课堂或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。",
         "applicationCategory": "EducationalApplication",
         "operatingSystem": "任何系统",
         "browserRequirements": "需要 JavaScript",
@@ -80,7 +80,7 @@
     <noscript>
       <p class="noscript-note">
         这副棋盘完全在浏览器里运行，需要开启 JavaScript 才能用。
-        开启之后就能和电脑对弈，或者两个人用一台设备同屏对弈。
+        开启之后就能和电脑对弈，或者两个人用一台设备课堂对弈。
       </p>
     </noscript>
     <div id="app">
@@ -116,6 +116,26 @@
           <div class="board-frame">
             <div id="board" class="board" role="grid" aria-label="国际象棋棋盘"></div>
           </div>
+          <div class="annotation-toolbar" id="annotation-toolbar" role="toolbar" aria-label="画笔工具">
+            <button type="button" data-tool="square" aria-pressed="true" title="格子高亮：点击格子添加/移除高亮">
+              <i data-lucide="square"></i>
+            </button>
+            <button type="button" data-tool="arrow" aria-pressed="false" title="箭头：从起点拖到终点画箭头">
+              <i data-lucide="arrow-right"></i>
+            </button>
+            <button type="button" data-tool="erase" aria-pressed="false" title="擦除：点击格子或箭头擦除">
+              <i data-lucide="eraser"></i>
+            </button>
+            <span class="separator"></span>
+            <button type="button" class="color-swatch" data-color="yellow" aria-pressed="true" aria-label="黄色（当前选中）" title="黄色"></button>
+            <button type="button" class="color-swatch" data-color="green" aria-pressed="false" aria-label="绿色" title="绿色"></button>
+            <button type="button" class="color-swatch" data-color="red" aria-pressed="false" aria-label="红色" title="红色"></button>
+            <button type="button" class="color-swatch" data-color="blue" aria-pressed="false" aria-label="蓝色" title="蓝色"></button>
+            <span class="separator"></span>
+            <button type="button" id="annotation-clear" title="清空当前局面所有标注">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </div>
         </section>
 
         <aside class="sidebar">
@@ -124,12 +144,19 @@
               <i data-lucide="cpu"></i>电脑
             </button>
             <button type="button" data-mode="local" aria-pressed="false">
-              <i data-lucide="users"></i>同屏
+              <i data-lucide="users"></i>课堂
             </button>
             <button type="button" data-mode="online" aria-pressed="false">
               <i data-lucide="globe"></i>在线
             </button>
+            <button type="button" data-mode="class" aria-pressed="false">
+              <i data-lucide="school"></i>多人
+            </button>
           </div>
+
+          <button type="button" class="btn btn-secondary" id="import-btn">
+            <i data-lucide="upload"></i>导入 PGN/FEN
+          </button>
 
           <div id="result-banner" class="result-banner hidden"></div>
 
@@ -183,6 +210,47 @@
               <h2 class="card-title">正在进入对局</h2>
               <p class="online-wait"><span class="spinner" aria-hidden="true"></span>正在连到对方的房间……</p>
               <button class="btn btn-ghost btn-block" id="cancel-join-btn" type="button">取消</button>
+            </div>
+          </section>
+
+          <section class="card class-card hidden" id="class-card" aria-label="多人课堂">
+            <div class="online-section" id="class-idle">
+              <h2 class="card-title">多人课堂</h2>
+              <p class="online-note">老师开课堂，学生用 4 位码进来旁听。学生举手，老师批准后能走一步。</p>
+              <button class="btn btn-primary btn-block" id="class-create-btn" type="button">
+                <i data-lucide="plus"></i>开课堂
+              </button>
+              <div class="online-divider" aria-hidden="true"><span>或者用课堂码加入</span></div>
+              <form class="join-row" id="class-join-form">
+                <label class="visually-hidden" for="class-join-input">课堂码</label>
+                <input
+                  id="class-join-input"
+                  name="code"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  maxlength="4"
+                  pattern="\d{4}"
+                  placeholder="4 位数字"
+                />
+                <button class="btn btn-ghost" id="class-join-btn" type="submit">进入</button>
+              </form>
+              <p class="online-error" id="class-error" role="alert" hidden></p>
+            </div>
+
+            <div class="online-section hidden" id="class-active">
+              <h2 class="card-title">课堂码：<span id="class-code-display"></span></h2>
+              <div id="class-students" class="class-students"></div>
+              <button class="btn btn-ghost btn-block" id="class-leave-btn" type="button">离开课堂</button>
+            </div>
+
+            <div class="online-section hidden" id="class-student-panel">
+              <h2 class="card-title">旁听中</h2>
+              <p class="online-note" id="class-student-status">等待老师走子……</p>
+              <button class="btn btn-primary btn-block" id="class-hand-btn" type="button">
+                <i data-lucide="hand"></i><span class="class-hand-label">举手</span>
+              </button>
+              <button class="btn btn-ghost btn-block" id="class-student-leave-btn" type="button">离开课堂</button>
             </div>
           </section>
 
@@ -265,6 +333,12 @@
               <button class="btn btn-ghost analysis-toggle" id="analysis-btn" type="button" aria-pressed="false">
                 <i data-lucide="activity"></i>分析
               </button>
+              <button class="btn btn-ghost review-toggle" id="review-game-btn" type="button" disabled>
+                <i data-lucide="scan-search"></i>复盘
+              </button>
+              <button class="btn btn-ghost tactics-toggle" id="tactics-btn" type="button" aria-pressed="false">
+                <i data-lucide="target"></i>题库
+              </button>
             </div>
             <section class="analysis hidden" id="analysis-panel" aria-label="引擎评估">
               <div class="eval-row">
@@ -273,6 +347,15 @@
               </div>
               <ol class="eval-lines" id="eval-lines"></ol>
               <p class="eval-note" id="eval-note"></p>
+            </section>
+            <section class="review-progress-section hidden" id="review-progress-section">
+              <div id="review-progress-container"></div>
+            </section>
+            <section class="review-section hidden" id="review-result-panel" aria-label="复盘报告">
+              <div id="review-panel-container"></div>
+            </section>
+            <section class="tactics-section hidden" id="tactics-panel-section" aria-label="题库练习">
+              <div id="tactics-panel-container"></div>
             </section>
           </section>
 
@@ -372,6 +455,17 @@
       <div class="dialog-buttons">
         <button class="btn btn-danger-solid" id="confirm-yes" type="button"></button>
         <button class="btn btn-ghost" id="confirm-no" type="button" autofocus>取消</button>
+      </div>
+    </dialog>
+
+    <dialog class="dialog import-dialog" id="import-dialog" aria-labelledby="import-title">
+      <h2 class="dialog-title" id="import-title">导入棋局</h2>
+      <p class="dialog-sub">粘贴 PGN 或 FEN 字符串，导入棋局或局面。</p>
+      <textarea id="import-textarea" rows="8" placeholder="例如：&#10;1. e4 e5 2. Nf3 Nc6 *&#10;&#10;或 FEN：&#10;rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"></textarea>
+      <p class="import-error hidden" id="import-error"></p>
+      <div class="dialog-buttons">
+        <button class="btn btn-primary" id="import-confirm" type="button">导入</button>
+        <button class="btn btn-ghost" id="import-cancel" type="button">取消</button>
       </div>
     </dialog>
 

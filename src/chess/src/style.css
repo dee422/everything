@@ -301,9 +301,11 @@ svg.lucide {
 
 .board-column {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   min-width: 0;
+  gap: 8px;
   /* Lets .board-frame read this column's height as 100cqh. */
   container-type: size;
 }
@@ -315,6 +317,114 @@ svg.lucide {
   width: min(100%, calc(100dvh - 130px));
   width: min(100%, 100cqh);
   max-width: 680px;
+  position: relative;
+}
+
+/* Annotation overlay sits on top of the board for drawing arrows/highlights */
+.annotation-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Annotation toolbar */
+.annotation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.annotation-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.annotation-toolbar button:hover {
+  background: var(--surface-3);
+}
+
+.annotation-toolbar button[aria-pressed="true"] {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent-strong);
+}
+
+.annotation-toolbar button.color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  padding: 0;
+  background-clip: content-box;
+}
+
+.annotation-toolbar button.color-swatch[data-color="yellow"] {
+  background: #ffeb3b !important;
+}
+
+.annotation-toolbar button.color-swatch[data-color="green"] {
+  background: #4caf50 !important;
+}
+
+.annotation-toolbar button.color-swatch[data-color="red"] {
+  background: #f44336 !important;
+}
+
+.annotation-toolbar button.color-swatch[data-color="blue"] {
+  background: #2196f3 !important;
+}
+
+.annotation-toolbar button.color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.annotation-toolbar button.color-swatch[aria-pressed="true"] {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+  transform: scale(1.1);
+}
+
+.annotation-toolbar button.color-swatch[aria-pressed="true"]::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 14px;
+  font-weight: bold;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.8);
+  z-index: 1;
+}
+
+.annotation-toolbar .separator {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 4px;
 }
 
 /* ------------------------------------------------------------------ */
@@ -829,6 +939,61 @@ svg.lucide {
   color: var(--danger);
   font-size: 13px;
   font-weight: 500;
+}
+
+/* The classroom panel borrows the online card's look but adds a roster of
+   students with a small hand-state badge and an approve button. */
+.class-card {
+  margin-top: 12px;
+}
+.class-students {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+.class-student {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+}
+.class-student-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.class-hand-badge {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--muted);
+  color: var(--fg);
+}
+.class-hand-badge.hand-raised {
+  background: #fff3cd;
+  color: #7a5a00;
+}
+.class-hand-badge.hand-approved {
+  background: #d4edda;
+  color: #1e5a2e;
+}
+.class-approve-btn {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.btn-small {
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .invite-box {
@@ -1389,6 +1554,36 @@ select:focus-visible {
   flex: 1;
 }
 
+/* Import dialog */
+.import-dialog {
+  max-width: 500px;
+}
+
+.import-dialog textarea {
+  width: 100%;
+  min-height: 150px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-family: monospace;
+  resize: vertical;
+  margin-top: 12px;
+}
+
+.import-dialog textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.import-error {
+  color: var(--danger, #f44336);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
 /* Promotion picker */
 .promo-choices {
   display: flex;
@@ -1827,4 +2022,790 @@ select:focus-visible {
     padding: 7px 2px;
     font-size: 11.5px;
   }
+}
+
+/* ==========================================================================
+ * 复盘面板
+ * ======================================================================== */
+
+.review-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.review-section {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.review-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+/* 准确率 */
+.review-accuracy {
+  display: flex;
+  gap: 16px;
+  justify-content: space-around;
+}
+
+.review-accuracy-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.review-accuracy-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.review-accuracy-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* 统计 */
+.review-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.review-stat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.review-stat-label {
+  color: var(--text);
+}
+
+.review-stat-count {
+  font-weight: 600;
+}
+
+.review-stat-pct {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* 评估曲线 */
+.eval-graph-container {
+  width: 100%;
+}
+
+.eval-graph {
+  position: relative;
+  width: 100%;
+}
+
+.eval-graph svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.eval-tooltip {
+  position: absolute;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 10;
+  box-shadow: var(--shadow-card);
+}
+
+/* 关键转折 */
+.review-moments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-moment-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--surface);
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.review-moment-item:hover {
+  background: var(--accent-tint);
+}
+
+.review-moment-move {
+  font-weight: 500;
+  font-family: ui-monospace, 'SF Mono', monospace;
+}
+
+.review-moment-loss {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 走法列表 */
+.review-moves-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.review-moves-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.review-moves-row:hover {
+  background: var(--bg);
+}
+
+.review-moves-num {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 24px;
+}
+
+.review-move-item {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+
+.review-move-item:hover {
+  background: var(--accent-tint);
+}
+
+.review-move-item.current {
+  background: var(--accent-tint);
+  outline: 1px solid var(--accent);
+}
+
+.review-move-blunder {
+  font-weight: 600;
+}
+
+.review-move-mistake {
+  font-weight: 500;
+}
+
+/* 进度条 */
+.review-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+
+.review-progress-bar {
+  height: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.review-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.review-progress-text {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* 复盘按钮 */
+.review-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.review-btn:hover {
+  background: var(--accent-strong);
+}
+
+.review-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 复盘模式指示 */
+.review-mode-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--accent-tint);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.review-mode-indicator svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ====================================================================== */
+/* 题库面板                                                                */
+/* ====================================================================== */
+
+.tactics-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tactics-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.tactics-section h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* 导入区域 */
+.tactics-import {
+  border-style: dashed;
+}
+
+.tactics-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.tactics-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.tactics-tab:hover {
+  background: var(--bg);
+}
+
+.tactics-tab.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.tactics-file-area {
+  margin-bottom: 12px;
+}
+
+.tactics-file-input {
+  display: none;
+}
+
+.tactics-file-label {
+  display: block;
+  padding: 24px;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--muted);
+  transition: all 0.15s;
+}
+
+.tactics-file-label:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.tactics-text-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tactics-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.tactics-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.tactics-import-result {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  display: none;
+}
+
+.tactics-import-result.success {
+  display: block;
+  background: rgba(46, 204, 113, 0.15);
+  color: #27ae60;
+}
+
+.tactics-import-result.error {
+  display: block;
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+/* 题目展示区域 */
+.tactics-problem-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.tactics-counter {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tactics-status {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tactics-status.status-solving {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.tactics-status.status-correct {
+  background: rgba(46, 204, 113, 0.15);
+  color: #27ae60;
+}
+
+.tactics-status.status-incorrect {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.tactics-status.status-showing-solution {
+  background: rgba(241, 196, 15, 0.15);
+  color: #f39c12;
+}
+
+.tactics-hint {
+  padding: 10px 14px;
+  background: var(--bg);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.tactics-feedback {
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  min-height: 20px;
+}
+
+.tactics-feedback.feedback-correct {
+  background: rgba(46, 204, 113, 0.15);
+  color: #27ae60;
+}
+
+.tactics-feedback.feedback-incorrect {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.tactics-feedback.feedback-solution {
+  background: rgba(241, 196, 15, 0.15);
+  color: #f39c12;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+}
+
+/* 导航区域 */
+.tactics-btn-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tactics-btn-group .btn {
+  flex: 1;
+  min-width: 80px;
+}
+
+.tactics-btn-group button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 题库模式按钮 */
+.tactics-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tactics-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 题库模式指示 */
+.tactics-mode-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--accent-tint);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.tactics-mode-indicator svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 视图切换 */
+.tactics-view-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.tactics-view-toggle .btn {
+  flex: 1;
+}
+
+.tactics-view-toggle .btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* 筛选区域 */
+.tactics-filter {
+  margin-bottom: 12px;
+}
+
+.tactics-search {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.tactics-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.tactics-filter-options {
+  display: flex;
+  gap: 12px;
+}
+
+.tactics-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tactics-filter-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.tactics-filter-option input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.tactics-difficulty-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 12px;
+  margin-bottom: 6px;
+}
+
+/* 统计区域 */
+.tactics-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 8px;
+}
+
+.tactics-stat {
+  text-align: center;
+  padding: 8px;
+  background: var(--bg);
+  border-radius: 6px;
+}
+
+.stat-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* 随机练习按钮 */
+.tactics-random-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tactics-random-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 题目集管理 */
+.tactics-sets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tactics-set-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: 6px;
+  gap: 8px;
+}
+
+.tactics-set-item span {
+  flex: 1;
+  font-size: 13px;
+}
+
+.tactics-set-item .btn-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.btn-danger {
+  color: var(--danger);
+}
+
+.btn-danger:hover {
+  background: var(--danger-tint);
+}
+
+.tactics-save-set {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tactics-set-name-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.tactics-set-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* 题目列表 */
+.tactics-problem-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.tactics-problem-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tactics-problem-item:hover {
+  background: var(--accent-tint);
+}
+
+.problem-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.problem-id {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.problem-tags {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.problem-difficulty {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.problem-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.problem-progress {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.problem-progress.solved {
+  background: rgba(46, 204, 113, 0.15);
+  color: #27ae60;
+}
+
+.problem-progress.attempted {
+  background: rgba(241, 196, 15, 0.15);
+  color: #f39c12;
+}
+
+.fav-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.fav-btn.active {
+  color: #f1c40f;
+}
+
+.fav-btn:hover {
+  transform: scale(1.1);
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tactics-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--muted);
+  font-size: 13px;
 }

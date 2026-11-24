@@ -30,6 +30,15 @@ import {
   Download,
   Library,
   Activity,
+  Square,
+  ArrowRight,
+  Eraser,
+  Trash2,
+  Upload,
+  School,
+  Hand,
+  ScanSearch,
+  Target,
 } from 'lucide';
 
 import { Chess, colorOf } from './engine/chess.js';
@@ -37,7 +46,10 @@ import { chooseMove, LEVELS } from './engine/ai.js';
 import { createStockfish, scoreToCentipawns } from './engine/stockfish.js';
 import { canAnalyze, evalPercent, formatLine, formatScore, pvToSan } from './game/analysis.js';
 import { BoardView, pieceUrl, pieceLabel } from './ui/boardView.js';
+import { AnnotationOverlay } from './ui/annotations.js';
+import { parsePgn, parseFen, detectFormat } from './game/pgnParser.js';
 import { RoomGame, normalizeCode, POLL_MS, ROOM_MAX_TIME_MS } from './net/room.js';
+import { ClassSession, normalizeClassCode, CLASS_POLL_MS } from './net/classroom.js';
 import { problemText } from './net/auth.js';
 import { mountAccount } from './ui/account.js';
 import {
@@ -51,10 +63,13 @@ import {
   speakClock,
   timeControl,
 } from './game/clock.js';
-import { buildPgn, bundleFilename, bundlePgn, pgnFilename } from './game/pgn.js';
+import { buildPgn, buildAnnotatedPgn, bundleFilename, bundlePgn, pgnFilename } from './game/pgn.js';
 import { addEntry } from './game/library.js';
 import { clearGame, loadGame, saveGame } from './game/persistence.js';
 import { mountLibrary } from './ui/library.js';
+import { analyzeGame, CLASSIFY_LABEL, CLASSIFY_COLOR } from './game/review.js';
+import { mountReviewPanel, mountReviewProgress } from './ui/reviewPanel.js';
+import { mountTacticsPanel } from './ui/tacticsPanel.js';
 import { track } from './analytics.js';
 
 createIcons({
@@ -83,6 +98,15 @@ createIcons({
     Download,
     Library,
     Activity,
+    Square,
+    ArrowRight,
+    Eraser,
+    Trash2,
+    Upload,
+    School,
+    Hand,
+    ScanSearch,
+    Target,
   },
 });
 
@@ -90,6 +114,8 @@ const $ = (id) => document.getElementById(id);
 
 const els = {
   board: $('board'),
+  boardFrame: document.querySelector('.board-frame'),
+  annotationToolbar: $('annotation-toolbar'),
   resultBanner: $('result-banner'),
   topbarNote: $('topbar-note'),
   modeButtons: document.querySelectorAll('.mode-switch [data-mode]'),
@@ -123,6 +149,14 @@ const els = {
   evalScore: $('eval-score'),
   evalLines: $('eval-lines'),
   evalNote: $('eval-note'),
+  reviewGameBtn: $('review-game-btn'),
+  reviewProgressSection: $('review-progress-section'),
+  reviewProgressContainer: $('review-progress-container'),
+  reviewResultPanel: $('review-result-panel'),
+  reviewPanelContainer: $('review-panel-container'),
+  tacticsBtn: $('tactics-btn'),
+  tacticsPanelSection: $('tactics-panel-section'),
+  tacticsPanelContainer: $('tactics-panel-container'),
   srStatus: $('sr-status'),
   toast: $('toast'),
   controls: $('controls'),
@@ -157,6 +191,21 @@ const els = {
   copyLinkLabel: $('copy-link-label'),
   cancelHostBtn: $('cancel-host-btn'),
   cancelJoinBtn: $('cancel-join-btn'),
+  classCard: $('class-card'),
+  classIdle: $('class-idle'),
+  classActive: $('class-active'),
+  classStudentPanel: $('class-student-panel'),
+  classCreateBtn: $('class-create-btn'),
+  classJoinForm: $('class-join-form'),
+  classJoinInput: $('class-join-input'),
+  classJoinBtn: $('class-join-btn'),
+  classCodeDisplay: $('class-code-display'),
+  classStudents: $('class-students'),
+  classLeaveBtn: $('class-leave-btn'),
+  classStudentStatus: $('class-student-status'),
+  classHandBtn: $('class-hand-btn'),
+  classStudentLeaveBtn: $('class-student-leave-btn'),
+  classError: $('class-error'),
   promoDialog: $('promo-dialog'),
   gameoverDialog: $('gameover-dialog'),
   gameoverTitle: $('gameover-title'),
@@ -183,10 +232,10 @@ const SETTINGS_KEY = 'chess-settings';
 const DISPLAY_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 // Online play is the room API (src/net/room.js): the server holds the position
 // and the clocks, and this board asks it what it has missed every few seconds.
-const MODES = ['computer', 'local', 'online'];
+const MODES = ['computer', 'local', 'online', 'class'];
 /** What each mode is called: the top bar note, the player cards, and the
  *  switch's confirm dialog. The buttons in index.html carry the short form. */
-const MODE_LABELS = { computer: '电脑对弈', local: '同屏对弈', online: '在线对弈' };
+const MODE_LABELS = { computer: '电脑对弈', local: '课堂对弈', online: '在线对弈', class: '多人课堂' };
 /** Clock repaint rate. Tenths are shown when the time is low; this reads them. */
 const CLOCK_TICK_MS = 100;
 /** Shared by every board render that has nothing to highlight. */
@@ -255,6 +304,14 @@ let sentAt = 0; // when it went, so the wait for its echo has an end
 let requestOut = false; // one call at a time: a slow host must not pile them up
 let rebuilding = false; // the board is being replayed from the server's move list
 let flagPollDone = false; // asked once already after a displayed clock hit zero
+let classUiState = 'idle'; // 'idle'|'creating'|'joining'|'teaching'|'spectating'
+let classTimer = 0;
+let classAppliedSeq = 0; // last classroom event drawn on the board
+let classSentSan = null; // our move, on its way to the server
+let classSentAt = 0; // when it went, so a lost request cannot lock the board
+let classYourHand = 'none'; // what this seat was told last, to notice a change
+let classRequestOut = false; // one classroom call at a time
+let classAnnotTimer = 0; // coalesces a teacher's strokes into one broadcast
 let manualEnd = null; // {kind,title,sub} for ends the engine can't see (a flag fall)
 let confirmAction = null;
 let toastTimer = 0;
@@ -270,7 +327,10 @@ const resultFor = (winner) => (winner === 'w' ? '1-0' : '0-1');
 
 /** The color shown at the bottom of the board. */
 function bottomColor() {
-  return mode === 'local' ? 'w' : myColor;
+  // A classroom board belongs to the position, not to the person holding it:
+  // both colours are played by whoever the server has authorised, so there is no
+  // "my side" to turn the board around for.
+  return mode === 'local' || mode === 'class' ? 'w' : myColor;
 }
 
 function gameFinished() {
@@ -283,7 +343,10 @@ function gameFinished() {
  * computer, the computer's own opening move does not count.
  */
 function gameInProgress() {
-  if (mode === 'online' || gameFinished()) return false;
+  // A room or a class is owned by the server: switching modes leaves the
+  // position in place and the code still works, so there is nothing to warn
+  // the player about losing.
+  if (mode === 'online' || mode === 'class' || gameFinished()) return false;
   if (mode === 'computer') return game.history().some((m) => m.color === myColor);
   return game.history().length > 0;
 }
@@ -940,6 +1003,187 @@ function paintLineTexts(lines, turn, plies, fen) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 复盘功能                                                            */
+/* ------------------------------------------------------------------ */
+
+let reviewData = null;
+let reviewPanel = null;
+let reviewProgress = null;
+let reviewAnalyzing = false;
+
+/** 是否可以复盘：有走法记录且不在在线对弈中。 */
+function canReview() {
+  if (mode === 'online' && onlineUiState === 'playing') return false;
+  return game.history().length > 0;
+}
+
+/** 更新复盘按钮状态。 */
+function updateReviewButton() {
+  const enabled = canReview() && !reviewAnalyzing;
+  els.reviewGameBtn.disabled = !enabled;
+}
+
+/** 开始复盘分析。 */
+async function startReview() {
+  if (reviewAnalyzing || !canReview()) return;
+
+  reviewAnalyzing = true;
+  updateReviewButton();
+
+  // 显示进度条
+  els.reviewProgressSection.classList.remove('hidden');
+  els.reviewResultPanel.classList.add('hidden');
+  reviewProgress = mountReviewProgress(els.reviewProgressContainer);
+
+  // 收集所有局面的 FEN
+  const history = game.history({ verbose: true });
+  const fens = [game.fen()]; // 起始局面
+  const tempGame = new Chess();
+  for (const move of history) {
+    fens.push(move.after);
+  }
+
+  // 收集 UCI 格式的走法
+  const moves = history.map((m) => m.from + m.to + (m.promotion || ''));
+
+  try {
+    // 确保引擎已加载
+    const controller = await ensureEngine(analysisToken);
+    if (!controller) {
+      throw new Error('无法加载分析引擎');
+    }
+
+    // 批量分析
+    const results = await analyzeGame(controller, fens, moves, {
+      movetime: 400,
+      onProgress: ({ current, total }) => {
+        reviewProgress?.update(current, total);
+      },
+    });
+
+    // 保存结果
+    reviewData = {
+      results,
+      sans: history.map((m) => m.san),
+      fens,
+    };
+
+    // 显示结果
+    els.reviewProgressSection.classList.add('hidden');
+    els.reviewResultPanel.classList.remove('hidden');
+    reviewProgress?.destroy();
+    reviewProgress = null;
+
+    reviewPanel = mountReviewPanel(els.reviewPanelContainer, {
+      results: reviewData.results,
+      sans: reviewData.sans,
+      onPlyClick: (ply) => goToPly(ply),
+    });
+
+    // 同步当前局面
+    reviewPanel.setCurrentPly(viewPlies());
+
+  } catch (err) {
+    console.error('复盘分析失败:', err);
+    showToast('复盘分析失败：' + (err.message || '未知错误'));
+    els.reviewProgressSection.classList.add('hidden');
+  } finally {
+    reviewAnalyzing = false;
+    updateReviewButton();
+  }
+}
+
+/** 清除复盘数据。 */
+function clearReview() {
+  reviewData = null;
+  reviewPanel?.destroy();
+  reviewPanel = null;
+  reviewProgress?.destroy();
+  reviewProgress = null;
+  els.reviewProgressSection.classList.add('hidden');
+  els.reviewResultPanel.classList.add('hidden');
+  els.reviewPanelContainer.innerHTML = '';
+  els.reviewProgressContainer.innerHTML = '';
+}
+
+/** 更新复盘面板的当前局面高亮。 */
+function updateReviewHighlight(ply) {
+  reviewPanel?.setCurrentPly(ply);
+}
+
+/* ------------------------------------------------------------------ */
+/* 题库功能                                                            */
+/* ------------------------------------------------------------------ */
+
+let tacticsPanel = null;
+let tacticsMode = false;
+
+/** 切换题库模式。 */
+function toggleTacticsMode() {
+  tacticsMode = !tacticsMode;
+  els.tacticsBtn.setAttribute('aria-pressed', String(tacticsMode));
+  els.tacticsBtn.classList.toggle('active', tacticsMode);
+
+  if (tacticsMode) {
+    // 关闭其他模式
+    if (analyzing) setAnalysis(false);
+    if (reviewPanel) clearReview();
+
+    // 显示题库面板
+    els.tacticsPanelSection.classList.remove('hidden');
+    if (!tacticsPanel) {
+      tacticsPanel = mountTacticsPanel(els.tacticsPanelContainer, {
+        onMove: (uci) => {
+          // 玩家走棋时检查是否是题目的正确答案
+          if (tacticsPanel) {
+            tacticsPanel.checkMove(uci);
+          }
+        },
+        setFen: (fen) => {
+          // 设置棋盘局面
+          game.load(fen);
+          const plies = renderAll();
+          updateTacticsHighlight(plies);
+        },
+      });
+    }
+  } else {
+    els.tacticsPanelSection.classList.add('hidden');
+  }
+}
+
+/** 清除题库面板。 */
+function clearTactics() {
+  tacticsMode = false;
+  els.tacticsBtn.setAttribute('aria-pressed', 'false');
+  els.tacticsBtn.classList.remove('active');
+  els.tacticsPanelSection.classList.add('hidden');
+  if (tacticsPanel) {
+    tacticsPanel.destroy();
+    tacticsPanel = null;
+  }
+}
+
+/** 更新题库面板的当前局面。 */
+function updateTacticsHighlight(plies) {
+  // 题库模式下，当棋盘局面变化时更新面板
+  if (tacticsPanel && tacticsMode) {
+    const state = tacticsPanel.getState();
+    if (state && state.problems.length > 0) {
+      const problem = state.problems[state.currentIndex];
+      if (problem) {
+        // 检查当前局面是否与题目局面匹配
+        const currentFen = game.fen();
+        if (currentFen !== problem.fen) {
+          // 局面不匹配，可能是玩家走了其他棋
+          // 这里可以添加提示逻辑
+        }
+      }
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Saving a game in progress                                           */
 /* ------------------------------------------------------------------ */
 
@@ -1033,6 +1277,124 @@ function restoreGame() {
 
 const boardView = new BoardView(els.board, { onSquarePress, onDrop, onSquareActivate });
 
+const annotationOverlay = new AnnotationOverlay(els.boardFrame, {
+  getFen: () => shownPosition(viewPlies()).fen(),
+  getOrientation: () => boardView.orientation,
+});
+
+// Wire up annotation toolbar
+els.annotationToolbar.addEventListener('click', (e) => {
+  const toolBtn = e.target.closest('[data-tool]');
+  const colorBtn = e.target.closest('[data-color]');
+  const clearBtn = e.target.closest('#annotation-clear');
+
+  if (toolBtn) {
+    const tool = toolBtn.dataset.tool;
+    const isAlreadySelected = toolBtn.getAttribute('aria-pressed') === 'true';
+    if (isAlreadySelected) {
+      // Toggle off: deselect tool, return to normal move mode
+      annotationOverlay.setTool(null);
+      els.annotationToolbar.querySelectorAll('[data-tool]').forEach((btn) => {
+        btn.setAttribute('aria-pressed', 'false');
+      });
+    } else {
+      // Select tool
+      annotationOverlay.setTool(tool);
+      els.annotationToolbar.querySelectorAll('[data-tool]').forEach((btn) => {
+        btn.setAttribute('aria-pressed', btn === toolBtn ? 'true' : 'false');
+      });
+      // When activating arrow tool, deselect any selected piece
+      if (tool === 'arrow') {
+        selected = null;
+        targets = NO_TARGETS;
+      }
+    }
+    toolBtn.blur();
+  } else if (colorBtn) {
+    const color = colorBtn.dataset.color;
+    annotationOverlay.setColor(color);
+    els.annotationToolbar.querySelectorAll('[data-color]').forEach((btn) => {
+      const isSelected = btn === colorBtn;
+      btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      const colorName = btn.title;
+      btn.setAttribute('aria-label', isSelected ? `${colorName}（当前选中）` : colorName);
+    });
+    colorBtn.blur();
+  } else if (clearBtn) {
+    annotationOverlay.clearAll();
+    clearBtn.blur();
+  }
+});
+
+// Import dialog
+const importDialog = $('import-dialog');
+const importTextarea = $('import-textarea');
+const importError = $('import-error');
+const importBtn = $('import-btn');
+const importConfirm = $('import-confirm');
+const importCancel = $('import-cancel');
+
+importBtn.addEventListener('click', () => {
+  importTextarea.value = '';
+  importError.classList.add('hidden');
+  importDialog.showModal();
+});
+
+importCancel.addEventListener('click', () => {
+  importDialog.close();
+});
+
+importConfirm.addEventListener('click', () => {
+  const text = importTextarea.value.trim();
+  if (!text) {
+    importError.textContent = '请输入 PGN 或 FEN 字符串';
+    importError.classList.remove('hidden');
+    return;
+  }
+
+  const format = detectFormat(text);
+  if (format === 'fen') {
+    const result = parseFen(text);
+    if (!result.valid) {
+      importError.textContent = 'FEN 格式无效';
+      importError.classList.remove('hidden');
+      return;
+    }
+    // Load FEN position
+    game.load(result.fen);
+    reviewIndex = null;
+    selected = null;
+    targets = NO_TARGETS;
+    importDialog.close();
+    renderAll();
+  } else if (format === 'pgn') {
+    const result = parsePgn(text);
+    if (result.moves.length === 0) {
+      importError.textContent = 'PGN 中未找到有效走法';
+      importError.classList.remove('hidden');
+      return;
+    }
+    // Load PGN moves
+    game.reset();
+    for (const san of result.moves) {
+      const move = game.move(san);
+      if (!move) {
+        importError.textContent = `无效走法: ${san}`;
+        importError.classList.remove('hidden');
+        return;
+      }
+    }
+    reviewIndex = null;
+    selected = null;
+    targets = NO_TARGETS;
+    importDialog.close();
+    renderAll();
+  } else {
+    importError.textContent = '无法识别的格式，请输入 PGN 或 FEN';
+    importError.classList.remove('hidden');
+  }
+});
+
 function renderAll() {
   clampReview();
   // Before anything is drawn, so the clocks are painted in the state they are
@@ -1055,6 +1417,7 @@ function renderAll() {
     checkSquare: shownStatus.check ? shown.kingSquare(shownStatus.turn) : null,
   });
   els.board.classList.toggle('reviewing', !live);
+  annotationOverlay._render();
 
   renderPlayers();
   renderClocks();
@@ -1062,6 +1425,8 @@ function renderAll() {
   renderMoves(plies);
   renderReviewBar(plies);
   renderAnalysis(plies, shown);
+  updateReviewButton();
+  updateReviewHighlight(plies);
   renderBanner();
   announceState(liveStatus, game.lastMove());
 
@@ -1115,11 +1480,13 @@ function renderPlayers() {
       : LEVELS[level].label;
     els.bottomName.textContent = '你';
     els.bottomCaption.textContent = `执${side(bottom)}`;
-  } else if (mode === 'local') {
+  } else if (mode === 'local' || mode === 'class') {
+    // Nobody at this device holds a colour: the board belongs to the class, and
+    // whose turn it is to touch it comes from the server ply by ply.
     els.topName.textContent = colorName(top);
-    els.topCaption.textContent = MODE_LABELS.local;
+    els.topCaption.textContent = MODE_LABELS[mode];
     els.bottomName.textContent = colorName(bottom);
-    els.bottomCaption.textContent = MODE_LABELS.local;
+    els.bottomCaption.textContent = MODE_LABELS[mode];
   } else {
     // The nicknames are the room's own row, so a player sees the name they
     // chose rather than "Opponent" — and the empty seat still has a name.
@@ -1429,6 +1796,7 @@ function updateModeUi() {
   els.topbarNote.textContent = MODE_LABELS[mode];
 
   const online = mode === 'online';
+  const inClass = mode === 'class';
   const showIdle = online && ['idle', 'creating', 'ended'].includes(onlineUiState);
   els.onlineCard.classList.toggle('hidden', !online || onlineUiState === 'playing');
   els.onlineIdle.classList.toggle('hidden', !showIdle);
@@ -1444,6 +1812,27 @@ function updateModeUi() {
   els.hostBtnLabel.textContent =
     onlineUiState === 'creating' ? '正在开局…' : '开一局';
 
+  // Unlike a room, the class panel keeps its border once the class is running:
+  // the code is on it and, for a teacher, so is the list of raised hands.
+  const classBusy = classUiState === 'creating' || classUiState === 'joining';
+  const teaching = inClass && classUiState === 'teaching';
+  const spectating = inClass && classUiState === 'spectating';
+  const classLive = teaching || spectating;
+  els.classCard.classList.toggle('hidden', !inClass);
+  els.classIdle.classList.toggle('hidden', inClass && classLive);
+  els.classActive.classList.toggle('hidden', !teaching);
+  els.classStudentPanel.classList.toggle('hidden', !spectating);
+  els.classCreateBtn.disabled = classBusy;
+  els.classJoinBtn.disabled = classBusy;
+  els.classJoinInput.disabled = classBusy;
+  if (teaching) els.classCodeDisplay.textContent = classSession.code || '';
+  if (spectating) {
+    els.classStudentStatus.textContent = CLASS_HAND_NOTE[classSession.handStatus] ?? '等待老师走子……';
+    const raised = classSession.handStatus === 'raised';
+    els.classHandBtn.querySelector('.class-hand-label').textContent = raised ? '放下手' : '举手';
+    els.classHandBtn.disabled = classSession.handStatus === 'approved' || classRequestOut;
+  }
+
   // The board-side cards only make sense once an online game exists. The
   // result banner goes with them: while the setup panel is up, a leftover
   // 「你赢了」 would read as a verdict on the game being arranged.
@@ -1454,15 +1843,16 @@ function updateModeUi() {
   els.resultBanner.classList.toggle('hidden', !showGame || !els.resultBanner.textContent);
 
   const showLevel = mode === 'computer';
-  const showColor = mode === 'computer' || showIdle;
+  const showColor = (mode === 'computer' || showIdle) && !inClass;
   // A guest has nothing to pick: the room's clock and seats are the host's
-  // doing, and the referee writes them down before either side moves.
-  const showTime = !online || showIdle;
+  // doing, and the referee writes them down before either side moves. A class
+  // has no clock at all, and nobody at a desk chooses whose turn it is.
+  const showTime = !online && !inClass || showIdle;
   // Nothing to press during a game arranged or reviewed — Undo and New game
   // belong to games this device owns, and there is no second game to offer a
   // friend from here (they need a new code; see the note in the online card).
   const playing = online && onlineUiState === 'playing';
-  const showButtons = !online || playing;
+  const showButtons = !online && !inClass || playing;
   const showField = showLevel || showColor || showTime;
   const finished = gameFinished();
   els.levelField.classList.toggle('hidden', !showLevel);
@@ -1485,8 +1875,8 @@ function updateModeUi() {
   }
   els.controlsHint.classList.toggle('hidden', !showHint);
 
-  els.newGameBtn.classList.toggle('hidden', online);
-  els.undoBtn.classList.toggle('hidden', online);
+  els.newGameBtn.classList.toggle('hidden', online || inClass);
+  els.undoBtn.classList.toggle('hidden', online || inClass);
   els.resignBtn.classList.toggle('hidden', !(playing && !finished));
   els.leaveBtn.classList.toggle('hidden', !playing);
   els.buttonRow.classList.toggle('hidden', !showButtons);
@@ -1495,9 +1885,16 @@ function updateModeUi() {
   // is on show.
   els.controls.classList.toggle('hidden', !(showField || showButtons || showHint));
 
+  // A student's drawings cannot be sent, and an import would put this board
+  // somewhere the class is not. The teacher may draw but not paste in a game:
+  // the server holds the position, and a board it never saw would be erased by
+  // the next poll.
+  els.annotationToolbar.classList.toggle('hidden', inClass && !teaching);
+  importBtn.classList.toggle('hidden', inClass);
+
   // The game-over dialog's other button starts a new game, which online means
   // a new room and a new friend: the panel above has that.
-  els.gameoverNew.classList.toggle('hidden', online);
+  els.gameoverNew.classList.toggle('hidden', online || inClass);
 }
 
 function setOnlineError(message) {
@@ -1530,6 +1927,15 @@ function movableColorNow() {
   if (reviewing() || gameFinished()) return null;
   if (mode === 'computer') return thinking ? null : myColor;
   if (mode === 'local') return game.turn();
+  // In a class both colours sit on the board and the server decides who is
+  // allowed to touch them: a teacher always, a student for the one move they
+  // were given. While a move is on its way the board holds still, or the next
+  // snapshot would be replaying two plies it has only one of.
+  if (mode === 'class') {
+    if (!['teaching', 'spectating'].includes(classUiState)) return null;
+    if (classSentSan !== null || !classSession.canMove) return null;
+    return game.turn();
+  }
   // Online, the referee's turn is the only one that counts, and a second move
   // may not leave before the first has been written down: the server would
   // refuse it as not-the-right-turn and the player would watch their own piece
@@ -1540,6 +1946,11 @@ function movableColorNow() {
 }
 
 function onSquarePress(square, event) {
+  if (annotationOverlay.activeTool === 'arrow' || annotationOverlay.activeTool === 'erase') return;
+  if (mode === 'class' && ['teaching', 'spectating'].includes(classUiState) && !classSession.canMove) {
+    showToast(classSession.isStudent ? '课堂里先看着 —— 要走棋就举手。' : '课堂已经不能走了。');
+    return;
+  }
   const movable = movableColorNow();
   if (!movable) return;
   if (selected && targets.has(square)) {
@@ -1562,6 +1973,11 @@ function onSquarePress(square, event) {
 // Keyboard activation (Enter/Space on a focused square): same semantics as a
 // pointer press, minus the drag, and pressing the selected square deselects.
 function onSquareActivate(square) {
+  if (annotationOverlay.activeTool === 'arrow' || annotationOverlay.activeTool === 'erase') return;
+  if (mode === 'class' && ['teaching', 'spectating'].includes(classUiState) && !classSession.canMove) {
+    showToast(classSession.isStudent ? '课堂里先看着 —— 要走棋就举手。' : '课堂已经不能走了。');
+    return;
+  }
   const movable = movableColorNow();
   if (!movable) return;
   if (selected === square) {
@@ -1585,6 +2001,10 @@ function onSquareActivate(square) {
 }
 
 function onDrop(from, to, moved) {
+  if (annotationOverlay.activeTool === 'arrow' || annotationOverlay.activeTool === 'erase') {
+    renderAll();
+    return;
+  }
   if (to && to !== from && targets.has(to)) {
     attemptMove(from, to, { animate: false });
     return;
@@ -1619,8 +2039,16 @@ function attemptMove(from, to, { animate }) {
       sentAt = Date.now();
       trackGameStart();
       sendRoomMove(played.san);
+    } else if (mode === 'class') {
+      trackGameStart();
+      sendClassMove(played.san);
     } else {
       afterPlyApplied(played);
+      // 题库模式：检查走法是否正确
+      if (tacticsMode && tacticsPanel) {
+        const uci = played.from + played.to + (played.promotion || '');
+        tacticsPanel.checkMove(uci);
+      }
     }
     clearSelection();
     const proceed = () => {
@@ -1649,7 +2077,9 @@ function afterMove() {
   // arrives with the snapshot of the move that ends the game, and it is the
   // only one that can be exported or shown. An optimistic checkmate here would
   // be a result the server has not agreed to yet.
-  if (mode === 'online') return;
+  // A classroom game has no verdict to hand out — the teacher keeps the board
+  // after the mate to talk about it — so the same silence applies.
+  if (mode === 'online' || mode === 'class') return;
   const status = game.status();
   if (status.over) {
     renderAll();
@@ -1756,7 +2186,7 @@ function closeDialogs() {
 /* ------------------------------------------------------------------ */
 
 function newGame() {
-  if (mode === 'online') return; // an online game starts in a room, not here
+  if (mode === 'online' || mode === 'class') return; // a class starts with a code, not here
   aiToken++;
   thinking = false;
   myColor =
@@ -1775,6 +2205,8 @@ function newGame() {
   finishPromotion(null);
   clearSelection();
   clearTimeout(gameOverTimer);
+  clearReview();
+  clearTactics();
   closeDialogs();
   boardView.setOrientation(bottomColor());
   announcedPlies = 0;
@@ -1836,7 +2268,9 @@ function undoPly() {
 /** Drop every game, room and timer ahead of a mode change. */
 function teardownForModeChange() {
   stopRoomPolling();
+  stopClassPolling();
   roomGame.reset();
+  classSession.reset();
   onlineUiState = 'idle';
   onlineReturnState = 'idle';
   onlineEnd = null;
@@ -1845,10 +2279,20 @@ function teardownForModeChange() {
   sentSan = null;
   flagPollDone = false;
   rebuilding = false;
+  classUiState = 'idle';
+  classAppliedSeq = 0;
+  classSentSan = null;
+  classSentAt = 0;
+  classYourHand = 'none';
+  classRequestOut = false;
+  clearTimeout(classAnnotTimer);
+  classAnnotTimer = 0;
   aiToken++;
   thinking = false;
   manualEnd = null;
   reviewIndex = null;
+  clearReview();
+  clearTactics();
   closeDialogs();
   finishPromotion(null);
 }
@@ -1861,6 +2305,8 @@ function setMode(next) {
     saveSettings();
     if (mode === 'online') {
       enterOnlineIdle();
+    } else if (mode === 'class') {
+      enterClassIdle();
     } else {
       newGame();
     }
@@ -1870,6 +2316,17 @@ function setMode(next) {
       {
         title: '离开在线对弈？',
         sub: '换了模式就不再刷新这一局：钟会一直走到归零，而这个房间码不能坐回来。',
+        confirmLabel: '离开',
+      },
+      perform,
+    );
+  } else if (['teaching', 'spectating'].includes(classUiState)) {
+    // Going away does not touch the class: the code still opens it and every
+    // move is on the server. Stopping the refresh is what needs saying.
+    askConfirm(
+      {
+        title: '离开多人课堂？',
+        sub: '换了模式这块棋盘就不再跟着课堂刷新。用同一个课堂码还能回来。',
         confirmLabel: '离开',
       },
       perform,
@@ -1903,6 +2360,11 @@ const INVITE_NOTE = '有人约你对弈 —— 按「进入」就能坐下。';
 const roomGame = new RoomGame({
   onSnapshot: handleRoomSnapshot,
   onError: handleRoomProblem,
+});
+
+const classSession = new ClassSession({
+  onSnapshot: handleClassSnapshot,
+  onError: handleClassProblem,
 });
 
 /**
@@ -2503,6 +2965,427 @@ async function copyInviteLink() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Classroom (one teacher, many students)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A classroom board is a picture of the server's move list, never a game this
+ * device owns: there is no clock and no result, and whose turn it is to move
+ * changes ply by ply as the teacher hands the board out. So none of the online
+ * machinery — seats, time controls, verdicts, resigning — applies here, and the
+ * only recovery a wrong board needs is to read the record again.
+ */
+
+/** How long a move may go unanswered before the board stops assuming it landed. */
+const CLASS_SENT_MS = 8000;
+
+const CLASS_HAND_LABEL = { none: '旁听', raised: '举手', approved: '可走一步' };
+
+/** The line under a student's 举手 button, which is also their only read on
+ *  what is happening to them — the board itself looks the same either way. */
+const CLASS_HAND_NOTE = {
+  none: '等待老师走子……想走棋就举手。',
+  raised: '手已经举起来了，等老师点你。',
+  approved: '老师让你走一步 —— 现在可以动棋盘了。',
+};
+
+/** A position without its move counters, for asking "are we at the same place?". */
+const fenCore = (fen) => String(fen ?? '').trim().split(/\s+/).slice(0, 4).join(' ');
+
+function setClassError(message) {
+  els.classError.textContent = message;
+  els.classError.hidden = !message;
+}
+
+/** Where a line about the class goes: the panel while arranging it, a toast after. */
+function classProblem(message) {
+  if (['idle', 'creating', 'joining'].includes(classUiState)) setClassError(message);
+  else showToast(message);
+}
+
+/** Hold one classroom call at a time, so a slow host cannot queue up twenty. */
+async function classCall(what) {
+  classRequestOut = true;
+  try {
+    return await what();
+  } finally {
+    classRequestOut = false;
+  }
+}
+
+/** Empty the classroom panel and put a clean board back in its place. */
+function enterClassIdle() {
+  stopClassPolling();
+  clearTimeout(classAnnotTimer);
+  classSession.reset();
+  classUiState = 'idle';
+  classAppliedSeq = 0;
+  classSentSan = null;
+  classSentAt = 0;
+  classYourHand = 'none';
+  manualEnd = null;
+  reviewIndex = null;
+  aiToken++;
+  thinking = false;
+  game.reset();
+  resetClock(null);
+  resetTracking();
+  finishPromotion(null);
+  clearSelection();
+  clearTimeout(gameOverTimer);
+  closeDialogs();
+  boardView.setOrientation('w');
+  announcedPlies = 0;
+  setClassError('');
+  els.classJoinInput.value = '';
+  els.classStudents.replaceChildren();
+  els.srStatus.textContent = '多人课堂。老师开课堂拿课堂码，学生输这四位数字进来旁听。';
+  renderAll();
+}
+
+/** Open a class and read out its code for the teacher to dictate. */
+async function createClass() {
+  if (mode !== 'class' || classUiState !== 'idle') return;
+  setClassError('');
+  classUiState = 'creating';
+  updateModeUi();
+  const reply = await classCall(() => classSession.create());
+  if (!reply?.ok) {
+    classUiState = 'idle';
+    updateModeUi();
+    return;
+  }
+  // handleClassSnapshot has sat us in the class and started the polling.
+  els.classJoinInput.value = '';
+}
+
+/** Take a seat in a class from its 4-digit code. */
+async function joinClass(rawCode) {
+  if (mode !== 'class' || classUiState !== 'idle') return;
+  const code = normalizeClassCode(rawCode);
+  if (!code) {
+    setClassError('先填课堂码 —— 4 位数字。');
+    els.classJoinInput.focus();
+    return;
+  }
+  setClassError('');
+  classUiState = 'joining';
+  updateModeUi();
+  const reply = await classCall(() => classSession.join(code));
+  if (!reply?.ok) {
+    classUiState = 'idle';
+    updateModeUi();
+    els.classJoinInput.focus();
+  }
+}
+
+/**
+ * Stop watching, and for a teacher end the class. A student leaves only
+ * themselves: the board stays where it is for everyone still in the room.
+ */
+async function leaveClass() {
+  if (mode !== 'class' || !classSession.code) return;
+  const wasTeacher = classSession.isTeacher;
+  stopClassPolling();
+  clearTimeout(classAnnotTimer);
+  await classCall(() => classSession.leave());
+  enterClassIdle();
+  showToast(wasTeacher ? '课堂已关闭。' : '已离开课堂。');
+}
+
+/**
+ * The server's word about the class, whichever call brought it.
+ *
+ * The board is a replay of the server's move list rather than a copy of its
+ * position, which is what keeps the scoresheet, the review buttons and the PGN
+ * export working while several people push the same board around.
+ */
+function handleClassSnapshot(cls, fresh) {
+  if (mode !== 'class') return;
+
+  if (classUiState === 'creating' || classUiState === 'joining') {
+    sitInClass(cls);
+    return;
+  }
+  if (!['teaching', 'spectating'].includes(classUiState)) return;
+
+  if (cls.status !== 'open') {
+    endClass();
+    return;
+  }
+
+  const broke = !applyClassEvents(fresh);
+  if (broke || classDrifted(cls)) rebuildClass(cls);
+
+  announceHand(cls);
+  updateClassRoster();
+  updateModeUi();
+  renderAll();
+}
+
+/** A seat has appeared in a class: take it and get the board under it. */
+function sitInClass(cls) {
+  aiToken++;
+  thinking = false;
+  manualEnd = null;
+  reviewIndex = null;
+  classAppliedSeq = 0;
+  classSentSan = null;
+  classSentAt = 0;
+  classYourHand = cls.you?.hand ?? 'none';
+  finishPromotion(null);
+  clearSelection();
+  closeDialogs();
+  clearTimeout(gameOverTimer);
+  resetClock(null);
+  resetTracking();
+  boardView.setOrientation('w');
+  announcedPlies = 0;
+  game.reset();
+  classUiState = cls.you?.role === 'teacher' ? 'teaching' : 'spectating';
+  // A student joining halfway gets the record with the seat, so the replay here
+  // lands on the live position and fills in the scoresheet at the same time.
+  rebuildClass(cls);
+  startClassPolling();
+  updateClassRoster();
+  updateModeUi();
+  renderAll();
+  const text =
+    classUiState === 'teaching'
+      ? `课堂已开。课堂码 ${cls.code} —— 让学生输这四位数字进来。`
+      : `已进入课堂 ${cls.code}。${cls.you?.hand === 'approved' ? '老师已经让你走一步。' : '先看着，想走棋就举手。'}`;
+  els.srStatus.textContent = text;
+  showToast(text);
+  track('Class Joined', { role: cls.you?.role });
+}
+
+/**
+ * Draw the events this board has not seen. False means the list stopped fitting
+ * — a hole in the numbering, or a move this engine will not play from here —
+ * which is the caller's cue to read the whole record again instead of patching.
+ */
+function applyClassEvents(events) {
+  for (const event of events) {
+    if (event.seq <= classAppliedSeq) continue;
+    classAppliedSeq = event.seq;
+    const data = event.data ?? {};
+    if (event.type === 'move') {
+      // The referee writing down what this side already played in anticipation.
+      if (data.san === classSentSan) {
+        classSentSan = null;
+        continue;
+      }
+      if (!game.move(data.san)) return false;
+      trackGameStart();
+    } else if (event.type === 'annotation') {
+      annotationOverlay.applyRemote(game.fen(), data.annotations);
+    }
+  }
+  return true;
+}
+
+/** Do the board and the server disagree about where the class got to? */
+function classDrifted(cls) {
+  // An older position is a picture of the game, not a claim about where it is.
+  if (reviewing()) return false;
+  if (classSentSan !== null) {
+    // A move still on its way is one ply the record has not caught up with. Past
+    // the wait the request is gone, so stop believing it and let the record win.
+    if (Date.now() - classSentAt < CLASS_SENT_MS) return false;
+    classSentSan = null;
+  }
+  // Events can outpace the class row, and a list that arrived in pages leaves
+  // this board short until the next poll. Neither is a disagreement.
+  if (classAppliedSeq < cls.seq) return false;
+  return fenCore(game.fen()) !== fenCore(cls.fen);
+}
+
+/**
+ * Play the class's own move list again. The one recovery this board can do by
+ * itself, and the one thing nobody in the room should notice happening.
+ */
+function rebuildClass(cls) {
+  game.reset();
+  for (const event of classSession.events) {
+    if (event.type !== 'move') continue;
+    const san = event.data?.san;
+    if (!san || !game.move(san)) break;
+  }
+  // A list this engine will not replay — or one that has not all arrived yet —
+  // leaves the position as the shorter lie, since that is what everyone is
+  // looking at. The scoresheet fills in as the polls catch up.
+  if (fenCore(game.fen()) !== fenCore(cls.fen)) game.load(cls.fen);
+  classAppliedSeq = classSession.seqSeen();
+  classSentSan = null;
+  clampReview();
+}
+
+/** The class is over: stop asking, and say so once. */
+function endClass() {
+  if (classUiState === 'ended') return;
+  stopClassPolling();
+  clearTimeout(classAnnotTimer);
+  classUiState = 'ended';
+  finishPromotion(null);
+  clearSelection();
+  closeDialogs();
+  const text = '课堂已经关闭，棋盘停在最后一步。要再上课就重新开一个。';
+  els.srStatus.textContent = text;
+  setClassError(text);
+  updateModeUi();
+  renderAll();
+}
+
+/** Tell a student the teacher has just handed them the board. */
+function announceHand(cls) {
+  const hand = cls.you?.hand ?? 'none';
+  if (hand === classYourHand) return;
+  classYourHand = hand;
+  if (hand === 'approved') {
+    els.srStatus.textContent = '老师让你走一步。现在可以动棋盘了。';
+    showToast('老师让你走一步 —— 现在可以动棋盘了。');
+  }
+}
+
+/** The teacher's list of who is in the room and whose hand is up. */
+function updateClassRoster() {
+  if (classUiState !== 'teaching') return;
+  const rows = classSession.members.filter((m) => m.role !== 'teacher');
+  if (rows.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'online-note';
+    empty.textContent = '还没有学生进来。把课堂码念给他们。';
+    els.classStudents.replaceChildren(empty);
+    return;
+  }
+  els.classStudents.replaceChildren(
+    ...rows.map((member) => {
+      const row = document.createElement('div');
+      row.className = 'class-student';
+      const name = document.createElement('span');
+      name.className = 'class-student-name';
+      name.textContent = member.nickname || `学生 ${member.id}`;
+      const badge = document.createElement('span');
+      badge.className = `class-hand-badge hand-${member.hand}`;
+      badge.textContent = CLASS_HAND_LABEL[member.hand] || '旁听';
+      row.append(name, badge);
+      if (member.hand === 'raised' || member.hand === 'approved') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-small class-approve-btn';
+        btn.textContent = member.hand === 'approved' ? '收回' : '请他走一步';
+        btn.addEventListener('click', () => approveStudent(member.id, member.hand !== 'approved'));
+        row.appendChild(btn);
+      }
+      return row;
+    }),
+  );
+}
+
+/** Grant or take back one student's one move. */
+async function approveStudent(playerId, approve) {
+  if (classUiState !== 'teaching' || !classSession.code) return;
+  await classCall(() => classSession.approve(playerId, approve));
+}
+
+/** Raise or lower this student's hand. */
+async function toggleHand() {
+  if (classUiState !== 'spectating' || !classSession.code) return;
+  const raising = classSession.handStatus !== 'raised';
+  await classCall(() => (raising ? classSession.raiseHand() : classSession.lowerHand()));
+}
+
+/**
+ * Mirror the teacher's drawing to the room. Strokes come faster than anyone
+ * needs: a short pause between the last one and the send keeps a dragged arrow
+ * from turning into thirty requests.
+ */
+function queueClassBroadcast() {
+  if (mode !== 'class' || classUiState !== 'teaching' || !classSession.code) return;
+  clearTimeout(classAnnotTimer);
+  classAnnotTimer = setTimeout(broadcastAnnotations, 400);
+}
+
+async function broadcastAnnotations() {
+  const fen = annotationOverlay.ctx.getFen();
+  const list = annotationOverlay.annotations.get(fen) ?? [];
+  await classCall(() => classSession.annotate(JSON.parse(JSON.stringify(list))));
+}
+
+function startClassPolling() {
+  if (classTimer || !classSession.code) return;
+  classTimer = setInterval(pollClass, CLASS_POLL_MS);
+}
+
+function stopClassPolling() {
+  clearInterval(classTimer);
+  classTimer = 0;
+}
+
+async function pollClass() {
+  if (classRequestOut || !classSession.code) return;
+  await classCall(() => classSession.poll());
+}
+
+/** Send a move the teacher or an approved student has already seen played. */
+async function sendClassMove(san) {
+  classSentSan = san;
+  classSentAt = Date.now();
+  await classCall(() => classSession.move(san));
+}
+
+/**
+ * A call that came back refused. An account problem opens the panel that fixes
+ * it; being put out of the class ends the view; a dropped question is not news,
+ * since the next poll asks it again.
+ */
+function handleClassProblem(reply) {
+  if (!reply || mode !== 'class') return;
+  const code = reply.code;
+
+  if (code === 'sign_in_required' || code === 'verify_required') {
+    stopClassPolling();
+    const text = problemText(reply);
+    els.srStatus.textContent = text;
+    classProblem(text);
+    if (['teaching', 'spectating'].includes(classUiState)) {
+      classUiState = 'idle';
+      classSession.reset();
+    }
+    updateModeUi();
+    account.open(code === 'sign_in_required' ? 'signin' : 'account');
+    return;
+  }
+
+  if (code === 'not_class_member' || code === 'no_such_class' || code === 'class_closed') {
+    stopClassPolling();
+    clearTimeout(classAnnotTimer);
+    classSession.reset();
+    classUiState = code === 'class_closed' ? 'ended' : 'idle';
+    classProblem(problemText(reply));
+    updateModeUi();
+    return;
+  }
+
+  if (code === 'no_permission') {
+    // Somebody else moved the board while this side was deciding to. The next
+    // snapshot says what actually happened; the guess on the screen does not.
+    classProblem('现在轮不到你走 —— 棋盘已经跟着老师更新了。');
+    if (classSession.cls) rebuildClass(classSession.cls);
+    renderAll();
+    return;
+  }
+
+  if (code === 'network' || code === 'service') {
+    // A move may well have landed even though the answer was lost, so hold the
+    // guess until the poll brings the record back.
+    return;
+  }
+
+  classProblem(problemText(reply));
+}
+
+/* ------------------------------------------------------------------ */
 /* PGN export                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -2515,6 +3398,11 @@ const PGN_LEVEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 
 function pgnNames() {
   if (mode === 'local') return { w: 'Player 1', b: 'Player 2' };
+  if (mode === 'class') {
+    const teacher = classSession.members.find((m) => m.role === 'teacher');
+    const teacherName = teacher?.nickname || '老师';
+    return { w: teacherName, b: '学生' };
+  }
   if (mode === 'online') {
     // The nicknames the referee holds, so a scoresheet says who played rather
     // than who was sitting at this device.
@@ -2527,7 +3415,7 @@ function pgnNames() {
 function currentPgn(date) {
   const end = currentEnd();
   const names = pgnNames();
-  return buildPgn({
+  const baseArgs = {
     sans: game.history().map((m) => m.san),
     result: end ? end.result : '*',
     white: names.w,
@@ -2535,7 +3423,16 @@ function currentPgn(date) {
     date,
     control: clock.control,
     termination: end ? end.termination : 'unterminated',
-  });
+  };
+
+  // Use annotated PGN if review data is available
+  if (reviewData) {
+    return buildAnnotatedPgn({
+      ...baseArgs,
+      review: { results: reviewData.results },
+    });
+  }
+  return buildPgn(baseArgs);
 }
 
 async function copyPgn() {
@@ -2647,6 +3544,19 @@ els.copyLinkBtn.addEventListener('click', copyInviteLink);
 els.cancelHostBtn.addEventListener('click', cancelOnlineSetup);
 els.cancelJoinBtn.addEventListener('click', cancelOnlineSetup);
 
+els.classCreateBtn.addEventListener('click', createClass);
+els.classJoinForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  joinClass(els.classJoinInput.value);
+});
+els.classLeaveBtn.addEventListener('click', leaveClass);
+els.classStudentLeaveBtn.addEventListener('click', leaveClass);
+els.classHandBtn.addEventListener('click', toggleHand);
+
+// A teacher's drawing is broadcast, but only after a short pause so that a
+// single dragged arrow does not turn into thirty requests.
+annotationOverlay.onEdit = queueClassBroadcast;
+
 els.levelSelect.addEventListener('change', () => {
   level = els.levelSelect.value;
   saveSettings();
@@ -2675,6 +3585,15 @@ els.reviewPrevBtn.addEventListener('click', () => goToPly(viewPlies() - 1));
 els.reviewNextBtn.addEventListener('click', () => goToPly(viewPlies() + 1));
 els.reviewLastBtn.addEventListener('click', () => goToPly(game.history().length));
 els.analysisBtn.addEventListener('click', () => setAnalysis(!analyzing));
+els.reviewGameBtn.addEventListener('click', () => {
+  if (reviewData) {
+    // 已有复盘数据，切换显示
+    els.reviewResultPanel.classList.toggle('hidden');
+  } else {
+    startReview();
+  }
+});
+els.tacticsBtn.addEventListener('click', () => toggleTacticsMode());
 
 // The move list is rebuilt on every render, so the click lands on the list.
 els.moveList.addEventListener('click', (e) => {
