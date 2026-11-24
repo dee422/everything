@@ -10,6 +10,9 @@
   --accent-tint: rgba(0, 43, 178, 0.1);
   --danger: #c25450;
   --danger-tint: rgba(194, 84, 80, 0.12);
+  --mistake: #b8531f;
+  --inaccuracy: #a8790a;
+  --good: #1e8e4e;
   --sq-light: #e9ecf4;
   --sq-dark: #7d90bb;
   --hl-sel: rgba(246, 204, 90, 0.6);
@@ -36,6 +39,9 @@
   --accent-tint: rgba(92, 122, 240, 0.16);
   --danger: #d4726e;
   --danger-tint: rgba(212, 114, 110, 0.16);
+  --mistake: #e08a4e;
+  --inaccuracy: #d6b64c;
+  --good: #56c98a;
   --sq-light: #d3d8e5;
   --sq-dark: #5f6f99;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -1216,6 +1222,25 @@ button.ply:focus-visible {
   outline-offset: -1px;
 }
 
+/* 复盘结论写在走法上：错着偏红、好棋偏绿。写在 `.current` 之前，所以正在
+   看的那一手仍然按高亮走。 */
+.move-row .ply-annot-blunder {
+  color: var(--danger);
+}
+
+.move-row .ply-annot-mistake {
+  color: var(--mistake);
+}
+
+.move-row .ply-annot-inaccuracy {
+  color: var(--inaccuracy);
+}
+
+.move-row .ply-annot-good,
+.move-row .ply-annot-best {
+  color: var(--good);
+}
+
 /* The position on the board — the latest move while playing, the one being
    looked at while reviewing. */
 .move-row .ply.current {
@@ -2135,6 +2160,20 @@ select:focus-visible {
   margin-bottom: 8px;
 }
 
+/* 小结：一句一段，行距比数字区松，手机上也能一句句扫 */
+.review-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-summary-line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
 /* 准确率 */
 .review-accuracy {
   display: flex;
@@ -2305,12 +2344,29 @@ select:focus-visible {
   outline: 1px solid var(--accent);
 }
 
+/* 复盘报告里的走法：颜色说清好坏，符号（?? ? ?! ! !!）跟着 SAN 写在后面。 */
 .review-move-blunder {
+  color: var(--danger);
   font-weight: 600;
 }
 
 .review-move-mistake {
+  color: var(--mistake);
   font-weight: 500;
+}
+
+.review-move-inaccuracy {
+  color: var(--inaccuracy);
+}
+
+.review-move-good,
+.review-move-best {
+  color: var(--good);
+}
+
+.review-mark {
+  margin-left: 1px;
+  font-weight: 700;
 }
 
 /* 进度条 */

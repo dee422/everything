@@ -68,7 +68,7 @@ import { buildPgn, buildAnnotatedPgn, bundleFilename, bundlePgn, pgnFilename } f
 import { addEntry } from './game/library.js';
 import { clearGame, loadGame, saveGame } from './game/persistence.js';
 import { mountLibrary } from './ui/library.js';
-import { analyzeGame, CLASSIFY_LABEL, CLASSIFY_COLOR } from './game/review.js';
+import { analyzeGame, CLASSIFY_LABEL, CLASSIFY_COLOR, markFor } from './game/review.js';
 import { mountReviewPanel, mountReviewProgress } from './ui/reviewPanel.js';
 import { mountTacticsPanel } from './ui/tacticsPanel.js';
 import { track } from './analytics.js';
@@ -253,16 +253,23 @@ const game = new Chess();
  */
 let gameOrigin = START_FEN;
 
-/** 把棋盘放到某个局面，并记住这盘棋由此开始。 */
+/**
+ * 把棋盘放到某个局面，并记住这盘棋由此开始。
+ *
+ * 换局面同时意味着复盘作废：那些分数是给刚才那串走法打的，留着等于把上一盘的
+ * 结论贴到这一盘上——走法区和导出的棋谱都会照抄。
+ */
 function loadBoard(fen) {
   game.load(fen);
   gameOrigin = fen;
+  clearReview();
 }
 
 /** 开新的一盘：回到标准开局。 */
 function resetBoard() {
   game.reset();
   gameOrigin = START_FEN;
+  clearReview();
 }
 
 let mode = 'computer'; // 'computer' | 'local' | 'online'
@@ -1106,10 +1113,14 @@ async function startReview() {
       results: reviewData.results,
       sans: reviewData.sans,
       onPlyClick: (ply) => goToPly(ply),
+      // 双人同屏（课堂、本地对战）时"你"没有意义，小结就按白方/黑方说
+      viewerColor: mode === 'local' ? null : myColor,
     });
 
     // 同步当前局面
     reviewPanel.setCurrentPly(viewPlies());
+    // 走法区也按结论重画一次：不然符号要等你按一下上/下才出现。
+    renderAll();
 
   } catch (err) {
     console.error('复盘分析失败:', err);
@@ -1612,9 +1623,20 @@ function renderMoves(plies) {
       ply.className = 'ply';
       ply.textContent = move.san;
       ply.dataset.ply = String(j + 1);
+      // 复盘跑过之后，走法区也按结论上色：教练在棋谱上怎么写，这里就怎么写。
+      const verdict = reviewData?.results?.[j];
+      const mark = verdict ? markFor(verdict) : '';
+      if (mark) {
+        ply.classList.add(`ply-annot-${verdict.classification}`);
+        const markEl = document.createElement('span');
+        markEl.className = 'review-mark';
+        markEl.textContent = mark;
+        ply.appendChild(markEl);
+      }
       ply.setAttribute(
         'aria-label',
-        `${colorName(move.color)}的第 ${Math.ceil((j + 1) / 2)} 手，${move.san}`,
+        `${colorName(move.color)}的第 ${Math.ceil((j + 1) / 2)} 手，${move.san}` +
+          (mark ? `，${CLASSIFY_LABEL[verdict.classification]}` : ''),
       );
       if (j + 1 === plies) {
         ply.classList.add('current');

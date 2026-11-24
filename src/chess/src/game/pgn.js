@@ -7,6 +7,8 @@
  * the app knows about the players and how the game ended.
  */
 
+import { nagFor } from './review.js';
+
 /** PGN wraps movetext at 80 columns; long lines are legal but discourteous. */
 const LINE_WIDTH = 80;
 
@@ -144,18 +146,6 @@ export function bundleFilename(date, count) {
 }
 
 /**
- * NAG (Numeric Annotation Glyph) codes for move classifications.
- * These are standard PGN annotation codes that chess programs understand.
- */
-const NAG = {
-  blunder: '$4',      // Blunder
-  mistake: '$2',      // Mistake
-  inaccuracy: '$6',   // Inaccuracy
-  good: '$1',         // Good move
-  best: '$3',         // Excellent move
-};
-
-/**
  * Build an annotated PGN with review analysis.
  *
  * @param {{
@@ -212,9 +202,8 @@ export function buildAnnotatedPgn({
       const r = review.results[i];
 
       // Add NAG for classification
-      if (r.classification && NAG[r.classification]) {
-        tokens.push(NAG[r.classification]);
-      }
+      const nag = nagFor(r);
+      if (nag) tokens.push(nag);
 
       // Add eval comment
       if (r.evalAfter !== undefined) {

@@ -6,7 +6,9 @@ import {
   countClassifications,
   findCriticalMoments,
   CLASSIFY_THRESHOLDS,
-  CLASSIFY_NAG,
+  annotationFor,
+  markFor,
+  nagFor,
   CLASSIFY_LABEL,
 } from '../src/game/review.js';
 import { Chess } from '../src/engine/chess.js';
@@ -85,12 +87,39 @@ describe('thresholds', () => {
     expect(CLASSIFY_THRESHOLDS.inaccuracy).toBe(50);
   });
 
-  it('exports NAG codes for PGN annotation', () => {
-    expect(CLASSIFY_NAG.blunder).toBe('$4');
-    expect(CLASSIFY_NAG.mistake).toBe('$2');
-    expect(CLASSIFY_NAG.inaccuracy).toBe('$6');
-    expect(CLASSIFY_NAG.good).toBeNull();
-    expect(CLASSIFY_NAG.best).toBeNull();
+  it('marks each classification with its written glyph and NAG', () => {
+    // PGN 的标准表：$1="!" $2="?" $3="!?" $4="?!" $5="!!" $6="??"
+    const white = '4r3/8/8/8/8/8/8/R3K3 w Q - 10 21';
+    const black = '4r3/8/8/8/8/8/8/R3K3 b Q - 10 21';
+    expect(markFor({ classification: 'best', fen: white, evalBefore: 0, evalAfter: 0 })).toBe('!');
+    expect(nagFor({ classification: 'good', fen: white, evalBefore: 0, evalAfter: 0 })).toBe('$1');
+    expect(markFor({ classification: 'inaccuracy', fen: black })).toBe('?!');
+    expect(nagFor({ classification: 'inaccuracy', fen: black })).toBe('$4');
+    expect(markFor({ classification: 'mistake', fen: white })).toBe('?');
+    expect(nagFor({ classification: 'mistake', fen: white })).toBe('$2');
+    expect(markFor({ classification: 'blunder', fen: black })).toBe('??');
+    expect(nagFor({ classification: 'blunder', fen: black })).toBe('$6');
+  });
+
+  it('has no annotation for a move the engine never scored', () => {
+    // 只有分类没有数字（比如导入的旧棋谱）也要给符号，反过来两者都没有就不能瞎标
+    expect(annotationFor({})).toBeNull();
+    expect(markFor({ classification: 'nonsense' })).toBe('');
+    expect(nagFor(null)).toBeNull();
+  });
+
+  it('reserves "!!" for the best move that gains a pawn or more', () => {
+    const white = '4r3/8/8/8/8/8/8/R3K3 w Q - 10 21';
+    const black = '4r3/8/8/8/8/8/8/R3K3 b Q - 10 21';
+    const plain = { classification: 'best', fen: white, evalBefore: 0, evalAfter: 50 };
+    expect(markFor(plain)).toBe('!');
+    expect(markFor({ ...plain, evalAfter: 100 })).toBe('!!');
+    expect(nagFor({ ...plain, evalAfter: 100 })).toBe('$5');
+    // 黑方那手同样要反过来减：评估往下走才是黑方在涨
+    expect(markFor({ classification: 'best', fen: black, evalBefore: 0, evalAfter: -120 })).toBe('!!');
+    expect(markFor({ classification: 'best', fen: black, evalBefore: 0, evalAfter: 120 })).toBe('!');
+    // 失误永远不会因为局面变好而升成 "!!"
+    expect(markFor({ classification: 'blunder', fen: white, evalBefore: 0, evalAfter: 400 })).toBe('??');
   });
 
   it('exports Chinese labels for UI display', () => {
@@ -308,5 +337,55 @@ describe('analyzeGame over a replayed game', () => {
     expect(results.every((r) => r.evalBefore === 0)).toBe(true);
     expect(results.map((r) => r.classification)).toEqual(['best', ...moves.slice(1).map(() => 'good')]);
     expect(results.every((r) => r.loss === 0)).toBe(true);
+  });
+});
+
+/**
+ * 终局的那一手：引擎在已经将死/和掉的局面里给的分不可信（将死的局面它报"走棋方
+ * mate 0"，按行棋方翻符号正好反了），所以要由规则引擎接管。
+ */
+describe('a game that ends on the board', () => {
+  const STALEMATE = '7k/5Q2/8/8/8/8/8/K7 b - - 0 1';
+
+  function replay(sans) {
+    const game = new Chess();
+    const fens = [game.fen()];
+    for (const san of sans) {
+      game.move(san);
+      fens.push(game.fen());
+    }
+    return { fens, moves: game.history().map((m) => m.from + m.to + (m.promotion || '')) };
+  }
+
+  /** 每个局面都回 "mate 0"，好看出 analyzeGame 有没有去问终局那一步。 */
+  function stubbornController() {
+    return {
+      calls: [],
+      async analyze({ fen }) {
+        this.calls.push(fen);
+        return { bestmove: 'd2d4', lines: [{ depth: 12, score: { type: 'mate', value: 0 }, pv: [] }] };
+      },
+    };
+  }
+
+  it('calls the mated side by the rules, not by the engine sign', async () => {
+    const { fens, moves } = replay(['f3', 'e5', 'g4', 'Qh4#']);
+    const controller = stubbornController();
+    const results = await analyzeGame(controller, fens, moves, { movetime: 1 });
+    const mate = results[results.length - 1];
+
+    // 白方被将死：白方正、黑方负，所以是 -1000
+    expect(mate.evalAfter).toBe(-1000);
+    // 将杀那一手不能记成亏了两千兵
+    expect(mate.loss).toBe(0);
+    // 死掉的局面不值得再问一遍引擎
+    expect(controller.calls).not.toContain(fens[fens.length - 1]);
+  });
+
+  it('scores a stalemate as dead equal whatever the engine says', async () => {
+    const controller = stubbornController();
+    const results = await analyzeGame(controller, ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', STALEMATE], ['e2e4'], { movetime: 1 });
+
+    expect(results[results.length - 1].evalAfter).toBe(0);
   });
 });

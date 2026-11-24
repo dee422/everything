@@ -193,6 +193,8 @@ describe('buildAnnotatedPgn', () => {
     sans: ['e4', 'e5', 'Nf3', 'Nc6'],
     result: '*',
   };
+  // 复盘结果里的 fen 是走这手之前的局面，所以第 0 手轮白方
+  const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
   it('includes an Annotator tag when review data is provided', () => {
     const pgn = buildAnnotatedPgn({
@@ -221,11 +223,27 @@ describe('buildAnnotatedPgn', () => {
         ],
       },
     });
-    // $3 = excellent/best, $4 = blunder, $2 = mistake, $6 = inaccuracy
-    expect(pgn).toContain('$3');
-    expect(pgn).toContain('$4');
-    expect(pgn).toContain('$2');
-    expect(pgn).toContain('$6');
+    // 标准 NAG 表：! = $1, ?? = $6, ? = $2, ?! = $4。走法后面跟的就是它在
+    // 别的软件里会显示出来的符号，写错编号等于换了个意思。
+    expect(moveText(pgn)).toContain('e4 $1');
+    expect(moveText(pgn)).toContain('e5 $6');
+    expect(moveText(pgn)).toContain('Nf3 $2');
+    expect(moveText(pgn)).toContain('Nc6 $4');
+  });
+
+  it('exports "!!" only for the best move that gains a pawn', () => {
+    const pgn = buildAnnotatedPgn({
+      ...annotatedBase,
+      review: {
+        results: [
+          // 引擎第一选，而且把局面抬了两兵 —— 这才配 $5
+          { classification: 'best', fen: START, evalBefore: 20, evalAfter: 220 },
+          { classification: 'best', fen: START, evalBefore: 20, evalAfter: 40 },
+        ],
+      },
+    });
+    expect(moveText(pgn)).toContain('e4 $5');
+    expect(moveText(pgn)).toContain('e5 $1');
   });
 
   it('adds eval comments in PGN format', () => {
@@ -280,8 +298,7 @@ describe('buildAnnotatedPgn', () => {
       },
     });
     // Should not throw, just annotate what's available
-    expect(pgn).toContain('$3');
-    expect(pgn).toContain('[%eval +0.30]');
+    expect(moveText(pgn)).toBe('1. e4 $1 { [%eval +0.30] } e5 2. Nf3 Nc6 *');
   });
 });
 
@@ -308,7 +325,8 @@ describe('a game that did not start from the usual position', () => {
     const pairs = tags(pgn);
     expect(pairs).toContainEqual(['SetUp', '1']);
     expect(pairs).toContainEqual(['FEN', ENDGAME]);
-    expect(moveText(pgn)).toContain('$4');
+    // 错着 = ?? = $6
+    expect(moveText(pgn)).toContain('$6');
   });
 
   it('survives a round trip back through the parser', () => {

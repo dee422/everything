@@ -17,6 +17,7 @@
  */
 
 import { scoreToCentipawns, uciToMove } from '../engine/stockfish.js';
+import { Chess } from '../engine/chess.js';
 
 /** 分类阈值（centipawns）。 */
 export const CLASSIFY_THRESHOLDS = {
@@ -25,14 +26,64 @@ export const CLASSIFY_THRESHOLDS = {
   inaccuracy: 50,
 };
 
-/** 分类对应的 NAG（Numeric Annotation Glyph）。 */
-export const CLASSIFY_NAG = {
-  blunder: '$4',
-  mistake: '$2',
-  inaccuracy: '$6',
-  good: null,
-  best: null,
+/**
+ * 每一类走法的标注：书写符号 + PGN 的 NAG 码，成对写在一行里。
+ *
+ * NAG 的标准表是 $1="!"、$2="?"、$3="!?"、$4="?!"、$5="!!"、$6="??"。两处分开
+ * 维护迟早对不上，导出到别的软件就会显示成另一个符号。
+ *
+ * "!!" 不在表里：一整盘的最佳手都盖 "!!" 等于没盖，那是别的软件里的妙手专用符号，
+ * 只有下面 annotationFor 认定的那几手才配得上。
+ */
+const ANNOTATIONS = {
+  best: { mark: '!', nag: '$1' },
+  good: { mark: '!', nag: '$1' },
+  inaccuracy: { mark: '?!', nag: '$4' },
+  mistake: { mark: '?', nag: '$2' },
+  blunder: { mark: '??', nag: '$6' },
 };
+
+/** "!!" 只留给真正的妙手，见 annotationFor。 */
+const BRILLIANT = { mark: '!!', nag: '$5' };
+
+/** 最佳手把这盘棋抬高至少一兵，才从 "!" 升成 "!!"。 */
+const BRILLIANT_GAIN = 100;
+
+/**
+ * 这手棋给走棋方带来多少评估提升。evalBefore/evalAfter 都是白方正的单位，所以黑方
+ * 要反过来减。缺数字就返回 0，让调用方按"没有提升"处理。
+ */
+export function moverGain(result) {
+  const before = result?.evalBefore;
+  const after = result?.evalAfter;
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return 0;
+  return String(result.fen || '').split(/\s+/)[1] === 'b' ? before - after : after - before;
+}
+
+/**
+ * 一手棋的标注：符号 + NAG。
+ *
+ * @param {{ classification?: string, fen?: string, evalBefore?: number, evalAfter?: number }} result
+ * @returns {{ mark: string, nag: string }|null} 没有分类就没有标注
+ */
+export function annotationFor(result) {
+  const base = ANNOTATIONS[result?.classification];
+  if (!base) return null;
+  if (result.classification === 'best' && moverGain(result) >= BRILLIANT_GAIN) {
+    return BRILLIANT;
+  }
+  return base;
+}
+
+/** SAN 后面要跟的那个符号，没有就返回空串。 */
+export function markFor(result) {
+  return annotationFor(result)?.mark ?? '';
+}
+
+/** 导出棋谱时要写的 NAG，没有就返回 null。 */
+export function nagFor(result) {
+  return annotationFor(result)?.nag ?? null;
+}
 
 /** 分类的中文标签。 */
 export const CLASSIFY_LABEL = {
@@ -135,10 +186,20 @@ export async function analyzeGame(controller, fens, moves, options = {}) {
   }
   const finalFen = fens[total];
   const finalTurn = finalFen.split(' ')[1];
-  const finalAnalysis = await controller.analyze({ fen: finalFen, depth, movetime: 200, multipv: 1 });
-  const finalEval = finalAnalysis.lines[0]?.score
-    ? scoreToCentipawns(finalAnalysis.lines[0].score, finalTurn)
-    : 0;
+  // 终局不听引擎的：已经将死的局面它给的是"走棋方 mate 0"这一类分数，按行棋方翻过
+  // 符号之后，会把将杀那一手记成丢了二十个兵。谁被将死，规则引擎说了算。
+  const finished = new Chess(finalFen);
+  let finalEval;
+  if (finished.isCheckmate()) {
+    finalEval = scoreToCentipawns({ type: 'mate', value: 1 }, finalTurn === 'w' ? 'b' : 'w');
+  } else if (finished.isDraw()) {
+    finalEval = 0;
+  } else {
+    const finalAnalysis = await controller.analyze({ fen: finalFen, depth, movetime: 200, multipv: 1 });
+    finalEval = finalAnalysis.lines[0]?.score
+      ? scoreToCentipawns(finalAnalysis.lines[0].score, finalTurn)
+      : 0;
+  }
 
   // 回填 evalAfter 并分类
   for (let i = 0; i < results.length; i++) {

@@ -2,6 +2,7 @@
  * 复盘报告面板：显示整盘棋的分析结果。
  *
  * 包含：
+ * - 小结（规则模板写的几句话）
  * - 准确率统计（白方/黑方/总体）
  * - 各分类计数（错着/漏着/不精确/好棋/最佳）
  * - 关键转折点列表
@@ -14,7 +15,9 @@ import {
   computeAccuracy,
   countClassifications,
   findCriticalMoments,
+  markFor,
 } from '../game/review.js';
+import { buildReviewSummary } from '../game/summary.js';
 import { mountEvalGraph } from './evalGraph.js';
 
 /**
@@ -25,11 +28,20 @@ import { mountEvalGraph } from './evalGraph.js';
  * @param {object[]} options.results - analyzeGame 的返回值
  * @param {string[]} options.sans - 每手棋的 SAN 格式
  * @param {function} options.onPlyClick - 点击走法时的回调 (ply) => void
+ * @param {'w'|'b'|null} [options.viewerColor] - 看棋的人执哪方，小结用它说"你/对方"
  * @returns {{ update: function, destroy: function }}
  */
-export function mountReviewPanel(container, { results, sans, onPlyClick }) {
+export function mountReviewPanel(container, { results, sans, onPlyClick, viewerColor = null }) {
   container.innerHTML = '';
   container.classList.add('review-panel');
+
+  // 小结放在最前面：教练先在纸上手写的那几句，扫一眼就知道该看哪几手
+  const summaryLines = buildReviewSummary(results, sans, { viewerColor });
+  if (summaryLines.length > 0) {
+    const summarySection = createSection('小结');
+    summarySection.appendChild(createSummaryList(summaryLines));
+    container.appendChild(summarySection);
+  }
 
   // 准确率
   const accuracy = computeAccuracy(results);
@@ -183,6 +195,8 @@ function createMomentsList(moments, results, sans, onPlyClick) {
     const moveEl = document.createElement('span');
     moveEl.className = 'review-moment-move';
     moveEl.textContent = `${moveNum}.${isWhite ? '' : '..'} ${san}`;
+    const mark = markSpan(result);
+    if (mark) moveEl.appendChild(mark);
     item.appendChild(moveEl);
 
     const lossEl = document.createElement('span');
@@ -235,12 +249,13 @@ function createMoveItem(result, san, ply, onPlyClick) {
   item.dataset.ply = ply;
   item.style.cursor = 'pointer';
 
-  if (result.classification && result.classification !== 'best' && result.classification !== 'good') {
+  if (result.classification) {
     item.classList.add(`review-move-${result.classification}`);
-    item.style.color = CLASSIFY_COLOR[result.classification];
   }
 
   item.textContent = san || '...';
+  const mark = markSpan(result.classification);
+  if (mark) item.appendChild(mark);
 
   // 悬停提示
   if (result.loss !== undefined && result.loss > 0) {
@@ -249,6 +264,29 @@ function createMoveItem(result, san, ply, onPlyClick) {
 
   item.addEventListener('click', () => onPlyClick?.(ply));
   return item;
+}
+
+/** SAN 后面的标注符号。颜色由外层 `.review-move-*` 决定，这里只管加粗。 */
+function markSpan(result) {
+  const mark = markFor(result);
+  if (!mark) return null;
+  const span = document.createElement('span');
+  span.className = 'review-mark';
+  span.textContent = mark;
+  return span;
+}
+
+/** 小结：一句一段，段末留一点行距，方便教练逐句扫。 */
+function createSummaryList(lines) {
+  const box = document.createElement('div');
+  box.className = 'review-summary';
+  for (const line of lines) {
+    const p = document.createElement('p');
+    p.className = 'review-summary-line';
+    p.textContent = line;
+    box.appendChild(p);
+  }
+  return box;
 }
 
 /**
