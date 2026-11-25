@@ -11,7 +11,7 @@
  */
 
 import { LEVELS } from '../engine/ai.js';
-import { clearLibrary, loadLibrary } from '../game/library.js';
+import { clearLibrary, loadLibrary, deleteFromServer } from '../game/library.js';
 import { bundleFilename, bundlePgn } from '../game/pgn.js';
 
 const $ = (id) => document.getElementById(id);
@@ -206,6 +206,12 @@ export function mountLibrary({ showToast, askConfirm, download }) {
         confirmLabel: '清空',
       },
       () => {
+        // Delete from server in the background; failure is silent (the local
+        // clear still happens, and server records will be overwritten on next
+        // sync if the player adds new games).
+        for (const entry of entries) {
+          deleteFromServer(entry.id);
+        }
         clearLibrary();
         picked.clear();
         render();

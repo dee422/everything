@@ -8,6 +8,7 @@
  */
 
 import { annotationFor, computeAccuracy, countClassifications, moverGain } from './review.js';
+import { moveLabels } from './position.js';
 
 const SIDE_NAME = { w: '白方', b: '黑方' };
 const SIDE_SHORT = { w: '白', b: '黑' };
@@ -27,17 +28,16 @@ function sideOf(result) {
   return String(result.fen || '').split(/\s+/)[1] === 'b' ? 'b' : 'w';
 }
 
-/** 局面自己的回合号；FEN 缺段时退回按手数折算。 */
-function moveNumber(result, ply) {
-  const fullmove = Number(String(result.fen || '').split(/\s+/)[5]);
-  return Number.isFinite(fullmove) && fullmove > 0 ? fullmove : Math.floor(ply / 2) + 1;
-}
-
 /** 怎么称呼某一手："第 61 回合黑方 g5??"。 */
-function refer(result, sans, ply) {
+function refer(result, sans, ply, labels) {
   const side = SIDE_NAME[sideOf(result)];
   const san = String(sans?.[ply] || result.move || '…').replace(/[!?]+$/, '');
-  return `第 ${moveNumber(result, ply)} 回合${side} ${san}${annotationFor(result)?.mark ?? ''}`;
+  // 优先用 labels（从开局位置重放算出来的回合号），否则从 result.fen 读
+  const lbl = labels?.[ply] ?? {
+    number: Number(String(result.fen || '').split(/\s+/)[5]) || Math.floor(ply / 2) + 1,
+    white: ply % 2 === 0,
+  };
+  return `第 ${lbl.number} 回合${side} ${san}${annotationFor(result)?.mark ?? ''}`;
 }
 
 /** centipawns 说成"多少兵"，保留两位。 */
@@ -115,10 +115,12 @@ export function buildReviewSummary(results, sans, options = {}) {
   if (!Array.isArray(results) || results.length === 0) return [];
   const viewer = options.viewerColor === 'w' || options.viewerColor === 'b' ? options.viewerColor : null;
   const foe = viewer === 'w' ? 'b' : viewer === 'b' ? 'w' : null;
+  const gameOrigin = options.gameOrigin || null;
   const accuracy = computeAccuracy(results);
   const counts = countClassifications(results);
   const lines = [];
-
+  // 回合号从开局位置读，不再按 ply/2 硬算
+  const labels = gameOrigin ? moveLabels(gameOrigin, sans) : [];
   const tier = TIERS.find(([min]) => accuracy.overall >= min)[1];
   const pct = (value) => `${value.toFixed(1)}%`;
   if (viewer) {
@@ -163,7 +165,7 @@ export function buildReviewSummary(results, sans, options = {}) {
   for (const r of worstMoves) {
     const suggestion = arrow(r.bestMove);
     lines.push(
-      `${refer(r, sans, r.ply)} 亏了 ${pawns(r.loss)}，` +
+      `${refer(r, sans, r.ply, labels)} 亏了 ${pawns(r.loss)}，` +
         `局面从 ${evalPhrase(r.evalBefore)} 变成 ${evalPhrase(r.evalAfter)}` +
         (suggestion ? `；引擎要的是 ${suggestion}` : '') +
         '。',
@@ -173,7 +175,7 @@ export function buildReviewSummary(results, sans, options = {}) {
   const highlight = bestFind(results);
   if (highlight && highlight.swing >= 50) {
     lines.push(
-      `${refer(highlight.result, sans, highlight.ply)} 是这盘最亮的一手，` +
+      `${refer(highlight.result, sans, highlight.ply, labels)} 是这盘最亮的一手，` +
         `为自己挣了 ${pawns(highlight.swing)} 的评估。`,
     );
   }

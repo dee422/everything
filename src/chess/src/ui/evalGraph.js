@@ -4,14 +4,18 @@
  * 横轴是步数（ply），纵轴是 centipawns。白方正朝上，黑方正朝下。
  * 杀棋距离饱和到 ±1000cp（和评估条一致）。
  *
+ * 图上不写颜色：每个图元只带一个类名，配色全在 style.css 里按主题变量给，
+ * 否则浅色主题会拿到一套深色主题的底色（这块以前就是黑框 + 灰字）。
+ *
  * 支持点击曲线跳转到对应局面。
  */
 
-import { CLASSIFY_COLOR } from '../game/review.js';
+import { CLASSIFY_ANNOT } from '../game/review.js';
+import { moveLabels } from '../game/position.js';
 
-const WIDTH = 600;
-const HEIGHT = 120;
-const PADDING = { top: 10, right: 10, bottom: 20, left: 40 };
+const WIDTH = 640;
+const HEIGHT = 160;
+const PADDING = { top: 12, right: 12, bottom: 22, left: 40 };
 const MAX_CP = 1000;
 
 /**
@@ -19,12 +23,17 @@ const MAX_CP = 1000;
  *
  * @param {HTMLElement} container - 挂载点
  * @param {object[]} results - analyzeGame 的返回值
+ * @param {string[]} sans - 每手棋的 SAN 格式
+ * @param {string} gameOrigin - 开局 FEN，用于算回合号
  * @param {function} onPlyClick - 点击曲线时的回调 (ply) => void
  * @returns {{ update: function, destroy: function }}
  */
-export function mountEvalGraph(container, results, onPlyClick) {
+export function mountEvalGraph(container, results, sans, gameOrigin, onPlyClick) {
   container.innerHTML = '';
   container.classList.add('eval-graph');
+
+  // 回合号从开局位置读，不再按 ply/2 硬算
+  const moveLabels_list = moveLabels(gameOrigin, sans);
 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', `0 0 ${WIDTH} ${HEIGHT}`);
@@ -48,8 +57,8 @@ export function mountEvalGraph(container, results, onPlyClick) {
     y: PADDING.top,
     width: plotWidth,
     height: plotHeight,
-    fill: '#1a1a2e',
     rx: 4,
+    class: 'eval-bg',
   });
   svg.appendChild(bg);
 
@@ -59,9 +68,9 @@ export function mountEvalGraph(container, results, onPlyClick) {
     y1: midY,
     x2: PADDING.left + plotWidth,
     y2: midY,
-    stroke: '#444',
     'stroke-width': 1,
     'stroke-dasharray': '4,4',
+    class: 'eval-zero',
   });
   svg.appendChild(zeroLine);
 
@@ -76,8 +85,8 @@ export function mountEvalGraph(container, results, onPlyClick) {
       x: PADDING.left - 8,
       y: yScale(cp) + 4,
       'text-anchor': 'end',
-      fill: '#888',
       'font-size': 10,
+      class: 'eval-label',
     });
     label.textContent = text;
     svg.appendChild(label);
@@ -90,7 +99,7 @@ export function mountEvalGraph(container, results, onPlyClick) {
     if (whitePath) {
       const whiteArea = createSvgElement('path', {
         d: whitePath,
-        fill: 'rgba(255, 255, 255, 0.15)',
+        class: 'eval-area eval-area-white',
       });
       svg.appendChild(whiteArea);
     }
@@ -100,7 +109,7 @@ export function mountEvalGraph(container, results, onPlyClick) {
     if (blackPath) {
       const blackArea = createSvgElement('path', {
         d: blackPath,
-        fill: 'rgba(0, 0, 0, 0.3)',
+        class: 'eval-area eval-area-black',
       });
       svg.appendChild(blackArea);
     }
@@ -111,9 +120,8 @@ export function mountEvalGraph(container, results, onPlyClick) {
     const linePath = buildLinePath(results, xScale, yScale);
     const line = createSvgElement('path', {
       d: linePath,
-      fill: 'none',
-      stroke: '#4fc3f7',
       'stroke-width': 2,
+      class: 'eval-curve',
     });
     svg.appendChild(line);
   }
@@ -124,16 +132,14 @@ export function mountEvalGraph(container, results, onPlyClick) {
     if (result.evalAfter === undefined) continue;
     const x = xScale(result.ply + 1);
     const y = yScale(result.evalAfter);
-    const color = CLASSIFY_COLOR[result.classification] || '#4fc3f7';
+    const annot = CLASSIFY_ANNOT[result.classification] || '';
 
     const dot = createSvgElement('circle', {
       cx: x,
       cy: y,
       r: 4,
-      fill: color,
-      stroke: '#fff',
       'stroke-width': 1,
-      class: 'eval-dot',
+      class: `eval-dot ${annot}`,
       'data-ply': result.ply,
     });
     svg.appendChild(dot);
@@ -146,15 +152,15 @@ export function mountEvalGraph(container, results, onPlyClick) {
   // 绘制 X 轴标签（每 10 步一个）
   const step = Math.max(1, Math.floor(results.length / 10));
   for (let i = 0; i < results.length; i += step) {
-    const moveNum = Math.floor(i / 2) + 1;
+    const lbl = moveLabels_list[i] ?? { number: Math.floor(i / 2) + 1, white: i % 2 === 0 };
     const label = createSvgElement('text', {
       x: xScale(i),
       y: HEIGHT - 4,
       'text-anchor': 'middle',
-      fill: '#888',
-      'font-size': 10,
+      'font-size': 11,
+      class: 'eval-label',
     });
-    label.textContent = moveNum;
+    label.textContent = lbl.number;
     svg.appendChild(label);
   }
 
@@ -164,9 +170,9 @@ export function mountEvalGraph(container, results, onPlyClick) {
     y1: PADDING.top,
     x2: PADDING.left,
     y2: PADDING.top + plotHeight,
-    stroke: '#ff9800',
     'stroke-width': 2,
     opacity: 0,
+    class: 'eval-cursor',
   });
   svg.appendChild(cursor);
 
@@ -184,7 +190,8 @@ export function mountEvalGraph(container, results, onPlyClick) {
     if (ply >= 0 && ply < results.length) {
       const result = results[ply];
       const evalText = formatEval(result.evalBefore);
-      tooltip.textContent = `${Math.floor(ply / 2) + 1}${ply % 2 === 0 ? '.' : '...'} ${evalText}`;
+      const lbl = moveLabels_list[ply] ?? { number: Math.floor(ply / 2) + 1, white: ply % 2 === 0 };
+      tooltip.textContent = `${lbl.number}${lbl.white ? '.' : '...'} ${evalText}`;
       tooltip.style.display = 'block';
       tooltip.style.left = `${(e.clientX - rect.left)}px`;
       tooltip.style.top = `${(e.clientY - rect.top) - 30}px`;

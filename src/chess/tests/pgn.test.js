@@ -302,6 +302,116 @@ describe('buildAnnotatedPgn', () => {
   });
 });
 
+describe('分析里记下的支线（#107 → 导出）', () => {
+  const MAIN = ['e4', 'e5', 'Nf3', 'Nc6'];
+  const plain = buildPgn({ ...base, sans: MAIN, result: '*' });
+
+  it('writes a black-side branch after the move it replaces', () => {
+    const pgn = buildPgn({ ...base, sans: MAIN, variations: [{ branchIndex: 1, moves: ['c5', 'Nf3', 'Nc6'] }] });
+    // 括号跟在 1.e4 后面（PGN：支线替代紧跟其后的那一手），里面黑方先走要写 `1...`。
+    expect(moveText(pgn)).toBe('1. e4 (1... c5 2. Nf3 Nc6) 1... e5 2. Nf3 Nc6 *');
+  });
+
+  it('writes a white-side branch with its own move number', () => {
+    const pgn = buildPgn({ ...base, sans: MAIN, variations: [{ branchIndex: 2, moves: ['d4', 'exd4'] }] });
+    expect(moveText(pgn)).toBe('1. e4 e5 (2. d4 exd4) 2. Nf3 Nc6 *');
+  });
+
+  it('leads the movetext when the branch replaces the very first move', () => {
+    const pgn = buildPgn({ ...base, sans: MAIN, variations: [{ branchIndex: 0, moves: ['d4', 'd5', 'c4'] }] });
+    // 分叉点前面没有"上一手"可跟，括号只能写在最前面。
+    expect(moveText(pgn)).toBe('(1. d4 d5 2. c4) 1. e4 e5 2. Nf3 Nc6 *');
+  });
+
+  it('keeps several branches at the same point, in creation order', () => {
+    const pgn = buildPgn({
+      ...base,
+      sans: MAIN,
+      variations: [
+        { branchIndex: 2, moves: ['d4', 'exd4', 'Nf3'] },
+        { branchIndex: 2, moves: ['Nc3', 'Bc5'] },
+      ],
+    });
+    expect(moveText(pgn)).toBe('1. e4 e5 (2. d4 exd4 3. Nf3) (2. Nc3 Bc5) 2. Nf3 Nc6 *');
+  });
+
+  it('nests a branch that branches off inside another branch', () => {
+    // 支线里再分出去的一线，括号套在父括号里面，分叉点按父线那一截的下标数。
+    const pgn = buildPgn({
+      ...base,
+      sans: MAIN,
+      variations: [
+        {
+          branchIndex: 1,
+          moves: ['c5', 'Nf3'],
+          children: [{ branchIndex: 1, moves: ['d4'], children: [] }],
+        },
+      ],
+    });
+    expect(moveText(pgn)).toBe('1. e4 (1... c5 (2. d4) 2. Nf3) 1... e5 2. Nf3 Nc6 *');
+  });
+
+  it('numbers a branch from the start position, not from parity', () => {
+    const ENDGAME = '8/6pk/8/7p/4K2P/5P2/8/8 b - - 3 61';
+    const pgn = buildPgn({
+      ...base,
+      sans: ['g6', 'f4'],
+      startFen: ENDGAME,
+      variations: [{ branchIndex: 1, moves: ['Kd5'] }],
+    });
+    expect(moveText(pgn)).toBe('61... g6 (62. Kd5) 62. f4 *');
+  });
+
+  it('keeps a branch that carries on past the last main move', () => {
+    // 撤销把"改走的那一手"退掉之后，旧主线正好停在末尾：那是接下来还可以这样走。
+    const pgn = buildPgn({ ...base, sans: MAIN, variations: [{ branchIndex: 4, moves: ['d4', 'exd4'] }] });
+    expect(moveText(pgn)).toBe('1. e4 e5 2. Nf3 Nc6 (3. d4 exd4) *');
+  });
+
+  it('drops a branch that does not play through from the branch point', () => {
+    // 王在这一手根本没有 Ke8：写进棋谱就是假棋谱，宁可只剩主线。
+    const pgn = buildPgn({ ...base, sans: MAIN, variations: [{ branchIndex: 1, moves: ['Ke8'] }] });
+    expect(moveText(pgn)).toBe(moveText(plain));
+  });
+
+  it('drops a branch whose branch point is not in the game', () => {
+    const pgn = buildPgn({
+      ...base,
+      sans: MAIN,
+      variations: [
+        { branchIndex: 5, moves: ['d4'] },   // 主线只走满 4 手，这个分叉点够不着
+        { branchIndex: 99, moves: ['d5'] },
+        { branchIndex: 1, moves: [] },
+        { branchIndex: null, moves: ['d5'] },
+      ],
+    });
+    expect(moveText(pgn)).toBe(moveText(plain));
+  });
+
+  it('still reads back as the same game through the parser', () => {
+    const parsed = parsePgn(
+      buildPgn({ ...base, sans: MAIN, result: '1-0', variations: [{ branchIndex: 1, moves: ['c5', 'd4'] }] }),
+    );
+    expect(parsed.moves).toEqual(MAIN);
+    expect(parsed.result).toBe('1-0');
+  });
+
+  it('carries the branches into the annotated export, after that move’s marks', () => {
+    const pgn = buildAnnotatedPgn({
+      ...base,
+      sans: MAIN,
+      variations: [{ branchIndex: 1, moves: ['c5'] }],
+      review: {
+        results: [
+          { classification: 'best', evalAfter: 30 },
+          { classification: 'blunder', evalAfter: -200 },
+        ],
+      },
+    });
+    expect(moveText(pgn)).toBe('1. e4 $1 { [%eval +0.30] } (1... c5) 1... e5 $6 { [%eval -2.00] } 2. Nf3 Nc6 *');
+  });
+});
+
 describe('a game that did not start from the usual position', () => {
   const ENDGAME = '8/6pk/8/7p/4K2P/5P2/8/8 b - - 3 61';
 
@@ -312,8 +422,11 @@ describe('a game that did not start from the usual position', () => {
     expect(pairs).toContainEqual(['FEN', ENDGAME]);
   });
 
-  it('keeps the movetext itself unchanged', () => {
-    expect(moveText(buildPgn({ ...base, startFen: ENDGAME }))).toBe('1. e4 e5 *');
+  it('numbers moves from the start position (#105)', () => {
+    // ENDGAME FEN: black to move at move 61 → first ply is `61...`, not `1.`
+    // Use legal moves from the ENDGAME position (g6 for black, f4 for white)
+    const legalMoves = { ...base, sans: ['g6', 'f4'] };
+    expect(moveText(buildPgn({ ...legalMoves, startFen: ENDGAME }))).toBe('61... g6 62. f4 *');
   });
 
   it('carries the same tags through the annotated export', () => {

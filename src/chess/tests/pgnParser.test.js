@@ -77,6 +77,43 @@ describe('parsePgn', () => {
     const result = parsePgn(pgn);
     expect(result.moves[6]).toBe('Qxf7#');
   });
+
+  describe('variations', () => {
+    // 别的软件导的棋谱几乎都带括号支线，棋盘这边只认主线：支线的内容可以不看，
+    // 但主线被吃掉半截就是"导入的棋谱少了一半"。
+    it('keeps the main line and the result across a branch', () => {
+      const pgn = `1. e4 (1... c5 2. Nf3) 1... e5 2. Nf3 Nc6 1-0`;
+      const result = parsePgn(pgn);
+      expect(result.moves).toEqual(['e4', 'e5', 'Nf3', 'Nc6']);
+      expect(result.result).toBe('1-0');
+    });
+
+    it('keeps the main line when a branch opens before the first move', () => {
+      const pgn = `[Result "*"]\n\n(1. d4 d5) 1. e4 e5 *`;
+      const result = parsePgn(pgn);
+      expect(result.moves).toEqual(['e4', 'e5']);
+      expect(result.result).toBe('*');
+    });
+
+    it('keeps the main line across a nested branch', () => {
+      const pgn = `1. c4 (1. e4 e5 2. Nf3 (2. d4 exd4) 2... Nc6) 1... Nf6 2. Nc3 *`;
+      const result = parsePgn(pgn);
+      expect(result.moves).toEqual(['c4', 'Nf6', 'Nc3']);
+      expect(result.result).toBe('*');
+    });
+
+    it('survives a branch split across lines by the 80-column wrap', () => {
+      const pgn = `1. e4 (1... c5\n2. Nf3 d6 3. d4) 1... e5 2. Nf3 *`;
+      const result = parsePgn(pgn);
+      expect(result.moves).toEqual(['e4', 'e5', 'Nf3']);
+    });
+
+    it('does not run off the end on an unclosed branch', () => {
+      const pgn = `1. e4 (1... c5 2. Nf3`;
+      expect(() => parsePgn(pgn)).not.toThrow();
+      expect(parsePgn(pgn).moves).toEqual(['e4']);
+    });
+  });
 });
 
 describe('parseFen', () => {

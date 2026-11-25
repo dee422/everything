@@ -48,7 +48,13 @@ import { canAnalyze, evalPercent, formatLine, formatScore, pvToSan } from './gam
 import { BoardView, pieceUrl, pieceLabel } from './ui/boardView.js';
 import { AnnotationOverlay } from './ui/annotations.js';
 import { parsePgn, parseFen, detectFormat, startFenFromTags } from './game/pgnParser.js';
-import { fenCore, positionAt as replayFrom, replayFens } from './game/position.js';
+import {
+  fenCore,
+  moveLabels,
+  positionAt as replayFrom,
+  replayFens,
+  variationLabels,
+} from './game/position.js';
 import { RoomGame, normalizeCode, POLL_MS, ROOM_MAX_TIME_MS } from './net/room.js';
 import { ClassSession, normalizeClassCode, CLASS_POLL_MS } from './net/classroom.js';
 import { problemText } from './net/auth.js';
@@ -65,13 +71,28 @@ import {
   timeControl,
 } from './game/clock.js';
 import { buildPgn, buildAnnotatedPgn, bundleFilename, bundlePgn, pgnFilename } from './game/pgn.js';
-import { addEntry } from './game/library.js';
+import { addEntry, pushToServer, deleteFromServer, loadLibrary } from './game/library.js';
 import { clearGame, loadGame, saveGame } from './game/persistence.js';
 import { mountLibrary } from './ui/library.js';
-import { analyzeGame, CLASSIFY_LABEL, CLASSIFY_COLOR, markFor } from './game/review.js';
+import { analyzeGame, CLASSIFY_ANNOT, CLASSIFY_LABEL, markFor } from './game/review.js';
 import { mountReviewPanel, mountReviewProgress } from './ui/reviewPanel.js';
 import { mountTacticsPanel } from './ui/tacticsPanel.js';
 import { track } from './analytics.js';
+import {
+  appendToBranch,
+  branchAt,
+  clearBranches,
+  existingMoveAt,
+  findBranch,
+  getActiveBranch,
+  getBranches,
+  getNode,
+  isViewingBranch,
+  navigateActiveBranch,
+  promoteMainLine,
+  pruneBranches,
+  setActiveBranch,
+} from './game/variations.js';
 
 createIcons({
   icons: {
@@ -155,6 +176,8 @@ const els = {
   reviewProgressContainer: $('review-progress-container'),
   reviewResultPanel: $('review-result-panel'),
   reviewPanelContainer: $('review-panel-container'),
+  pgnSheet: $('pgn-sheet'),
+  pgnBody: $('pgn-body'),
   tacticsBtn: $('tactics-btn'),
   tacticsPanelSection: $('tactics-panel-section'),
   tacticsPanelContainer: $('tactics-panel-container'),
@@ -263,6 +286,7 @@ function loadBoard(fen) {
   game.load(fen);
   gameOrigin = fen;
   clearReview();
+  clearBranches();
 }
 
 /** 开新的一盘：回到标准开局。 */
@@ -270,6 +294,7 @@ function resetBoard() {
   game.reset();
   gameOrigin = START_FEN;
   clearReview();
+  clearBranches();
 }
 
 let mode = 'computer'; // 'computer' | 'local' | 'online'
@@ -304,10 +329,11 @@ let reviewIndex = null;
 // (online, finished, not started) only clears it once instead of every render.
 let hasSave = true;
 
-// What the move list was last scrolled for: the ply on the board and the
-// length of the game. While neither changes, the list keeps whatever scroll
-// position the player has given it.
-let movesShown = { plies: -1, total: -1 };
+// What the move list was last scrolled for: where the board is in the game
+// (main-line ply, or a point inside a variation) and the length of the game.
+// While neither changes, the list keeps whatever scroll position the player has
+// given it.
+let movesShown = { seen: '', total: -1 };
 
 /** How long a move the referee has not written down stays on the board as our
  *  guess. A reply can be lost with the move already recorded, which is why the
@@ -466,7 +492,7 @@ function archiveFinishedGame(end) {
 
   const names = pgnNames();
   archiveId ??= `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-  addEntry({
+  const entry = {
     // Enough to tell two games apart on this device; nothing reaches a server.
     id: archiveId,
     at: Date.now(),
@@ -480,7 +506,11 @@ function archiveFinishedGame(end) {
     // parseEntry when the row is read.
     control: clock.control ? [clock.control.initial, clock.control.increment] : null,
     termination: end.termination,
-  });
+  };
+  addEntry(entry);
+  // Push to server in the background; failure is silent (the game is still in
+  // localStorage, and will sync on next login).
+  pushToServer(entry);
 }
 
 function loadSettings() {
@@ -776,9 +806,28 @@ function viewPlies() {
   return reviewIndex === null ? game.history().length : reviewIndex;
 }
 
-/** An undo (or a new game) can leave the review index past the last move. */
+/** 主线现在的走法（SAN）：支线树里那些「顶掉第几手」都是按它数下标的。 */
+function mainSans() {
+  return game.history().map((move) => move.san);
+}
+
+/**
+ * 棋盘显示的是哪几手，和支线树必须对得上。
+ *
+ * 主线可以变短（撤销）也可以整段换掉（在复盘位改走一手，见 attemptMove），所以
+ * 每画一次都先剪掉够不着的支线，再把"正在看支线"这件事绑回主线：reviewIndex 就
+ * 停在这条支线分叉出去的那一手之前 —— 走法区因此一直高亮着分叉点，看得清是从哪
+ * 里走岔的。
+ */
 function clampReview() {
-  if (reviewIndex !== null && reviewIndex >= game.history().length) reviewIndex = null;
+  const total = game.history().length;
+  pruneBranches(total);
+  const view = getActiveBranch();
+  if (view) {
+    const root = getNode(view.path.slice(0, 1));
+    reviewIndex = root ? Math.max(0, Math.min(root.branchIndex, total - 1)) : null;
+  }
+  if (reviewIndex !== null && reviewIndex >= total) reviewIndex = null;
 }
 
 /**
@@ -792,9 +841,48 @@ function positionAt(plies) {
   return replayFrom(gameOrigin, game.history(), plies);
 }
 
-/** The position the board is showing: the live game, or an earlier ply. */
+/** The position the board is showing: the live game, an earlier ply, or a branch. */
 function shownPosition(plies) {
+  const view = getActiveBranch();
+  if (view) return branchPositionAt(view.path, view.ply) || game;
   return plies === game.history().length ? game : (positionAt(plies) || game);
+}
+
+/**
+ * 支线第 `ply` 手之后的局面：先回到它的分叉点，再把这条线走 `ply` 手。
+ * ply=0 就是分叉点本身 —— 那条支线一手都还没走。
+ */
+function branchPositionAt(path, ply) {
+  const base = branchBasePosition(path);
+  const node = getNode(path);
+  if (!base || !node) return null;
+  return replaySan(base.fen(), node.moves, ply);
+}
+
+/**
+ * 这条支线是从哪个局面分出去的。
+ *
+ * 一层层往上算：挂在主线上的是主线第 branchIndex 手之后的局面，挂在支线下面的
+ * 是父支线自己走到 branchIndex 处的局面 —— 子支线的下标是相对父支线数的。
+ */
+function branchBasePosition(path) {
+  const node = getNode(path);
+  if (!node) return null;
+  if (path.length === 1) return positionAt(node.branchIndex);
+  const parentPath = path.slice(0, -1);
+  const parent = getNode(parentPath);
+  const base = branchBasePosition(parentPath);
+  if (!parent || !base) return null;
+  return replaySan(base.fen(), parent.moves, node.branchIndex);
+}
+
+/** 从 `fen` 起把 SAN 走法走 `count` 手。走不通返回 null，不硬凑一个局面。 */
+function replaySan(fen, sans, count) {
+  const pos = new Chess(fen);
+  for (let i = 0; i < count && i < sans.length; i++) {
+    if (!pos.move(sans[i])) return null;
+  }
+  return pos;
 }
 
 /** How a ply is written in chess: "12." for White's move, "12…" for Black's. */
@@ -806,7 +894,16 @@ function goToPly(target) {
   const total = game.history().length;
   const plies = Math.max(0, Math.min(total, target));
   const next = plies === total ? null : plies;
-  if (next === reviewIndex) return;
+  // Stepping through the main line leaves any branch view. See #107.
+  const leftBranch = isViewingBranch();
+  if (leftBranch) setActiveBranch(null);
+  if (next === reviewIndex) {
+    if (leftBranch) {
+      renderAll();
+      announceReview();
+    }
+    return;
+  }
   reviewIndex = next;
   // A piece cannot stay picked up across a jump to another position.
   boardView.cancelDrag();
@@ -815,10 +912,65 @@ function goToPly(target) {
   announceReview();
 }
 
+/**
+ * 把棋盘切到某条支线的第 `ply` 手。
+ *
+ * reviewIndex 跟着钉在这条支线分叉出去的那一手之前：一来"在看旧局面"这个状态
+ * 是靠它表达的（movableColorNow、attemptMove 都读它），二来走法区因此还亮着分叉
+ * 点，看得清现在走的是哪条岔路。
+ */
+function enterBranch(path, ply) {
+  if (!path.length) {
+    setActiveBranch(null);
+    renderAll();
+    return true;
+  }
+  if (!setActiveBranch(path, ply)) return false;
+  const root = getNode(path.slice(0, 1));
+  reviewIndex = root ? Math.max(0, Math.min(root.branchIndex, game.history().length - 1)) : null;
+  boardView.cancelDrag();
+  clearSelection();
+  return true;
+}
+
+/**
+ * Move the view one step. While a branch is open the arrows walk inside that
+ * line; otherwise they walk the main line (and drop out of any branch).
+ */
+function reviewNavigate(action) {
+  if (analyzing && isViewingBranch()) {
+    navigateActiveBranch(action);
+    renderAll();
+    announceReview();
+    return;
+  }
+  const total = game.history().length;
+  if (action === 'first') goToPly(0);
+  else if (action === 'prev') goToPly(viewPlies() - 1);
+  else if (action === 'next') goToPly(viewPlies() + 1);
+  else if (action === 'last') goToPly(total);
+}
+
+
 function announceReview() {
   const plies = viewPlies();
+  const view = analyzing ? getActiveBranch() : null;
   if (!reviewing()) {
     els.srStatus.textContent = '已回到最新局面。';
+  } else if (view) {
+    const node = getNode(view.path);
+    const played = (node?.moves ?? []).slice(0, view.ply);
+    if (!played.length) {
+      els.srStatus.textContent = '支线的起点。';
+    } else {
+      // 支线里那一手的颜色，读显示局面的行棋方就行：分叉点可能落在任何一局任何
+      // 一个先后手里，按主线奇偶算会算反。刚走完的那一手是它的对家。
+      const shown = branchPositionAt(view.path, view.ply);
+      const mover = shown ? (shown.turn() === 'w' ? 'b' : 'w') : null;
+      els.srStatus.textContent = mover
+        ? `支线上 —— ${colorName(mover)}走了 ${played[played.length - 1]}。`
+        : `支线上 ${played.join(' ')}。`;
+    }
   } else if (plies === 0) {
     els.srStatus.textContent = '开局局面。';
   } else {
@@ -874,12 +1026,18 @@ function setAnalysis(on) {
   els.analysisBtn.classList.toggle('btn-ghost', !on);
   els.analysisBtn.setAttribute('aria-pressed', String(on));
   els.analysisPanel.classList.toggle('hidden', !on);
-  if (on) {
-    const plies = viewPlies();
-    renderAnalysis(plies, shownPosition(plies));
-  } else {
+  if (!on) {
     closeEngine();
+    // 支线只在分析模式下能走，所以关掉分析就退出支线的 view。那些变化本身留着，
+    // 下次开分析还在。退出支线时把棋盘送回最新的一手：关掉分析之后旧局面只是
+    // 一张图片，留人站在那里没棋可走。
+    if (isViewingBranch()) {
+      setActiveBranch(null);
+      reviewIndex = null;
+    }
   }
+  // 棋盘下面那份棋谱两边都要重画：开分析才点得动支线，关分析要看得见它变成只能看。
+  renderAll();
 }
 
 function closeEngine() {
@@ -1104,21 +1262,7 @@ async function startReview() {
     };
 
     // 显示结果
-    els.reviewProgressSection.classList.add('hidden');
-    els.reviewResultPanel.classList.remove('hidden');
-    reviewProgress?.destroy();
-    reviewProgress = null;
-
-    reviewPanel = mountReviewPanel(els.reviewPanelContainer, {
-      results: reviewData.results,
-      sans: reviewData.sans,
-      onPlyClick: (ply) => goToPly(ply),
-      // 双人同屏（课堂、本地对战）时"你"没有意义，小结就按白方/黑方说
-      viewerColor: mode === 'local' ? null : myColor,
-    });
-
-    // 同步当前局面
-    reviewPanel.setCurrentPly(viewPlies());
+    showReviewResults();
     // 走法区也按结论重画一次：不然符号要等你按一下上/下才出现。
     renderAll();
 
@@ -1132,7 +1276,45 @@ async function startReview() {
   }
 }
 
-/** 清除复盘数据。 */
+/** 把已经算好的结论装进棋盘下方那份报告。 */
+function showReviewResults() {
+  els.reviewProgressSection.classList.add('hidden');
+  els.reviewResultPanel.classList.remove('hidden');
+  reviewProgress?.destroy();
+  reviewProgress = null;
+  // 主线换段之后要重装一遍：面板里那份走法列表、曲线和小结都是按旧的结论建的。
+  reviewPanel?.destroy();
+  reviewPanel = mountReviewPanel(els.reviewPanelContainer, {
+    results: reviewData.results,
+    sans: reviewData.sans,
+    gameOrigin,
+    onPlyClick: (ply) => goToPly(ply),
+    // 双人同屏（课堂、本地对战）时"你"没有意义，小结就按白方/黑方说
+    viewerColor: mode === 'local' ? null : myColor,
+  });
+  reviewPanel.setCurrentPly(viewPlies());
+}
+
+/**
+ * 主线在 `keepPlies` 处换了一段，复盘的结论只能留到那一手之前。
+ *
+ * 后面那些分数是给原来那条线打的：哪一手亏了多少、局面从哪里到哪里，全都对着
+ * 已经不在棋谱上的走法。贴在新线上等于把别人的答案抄过来 —— 宁可少评几手。
+ */
+function truncateReview(keepPlies) {
+  if (!reviewData || reviewData.results.length <= keepPlies) return;
+  reviewData = {
+    results: reviewData.results.slice(0, keepPlies),
+    sans: reviewData.sans.slice(0, keepPlies),
+    fens: reviewData.fens.slice(0, keepPlies + 1),
+  };
+  showReviewResults();
+}
+
+/**
+ * 清除复盘数据。支线不进这里：关闭复盘面板、或切到题库模式都不该把老师刚摆出来
+ * 的变化抹掉，那两处只是不再显示。支线跟着棋盘局面走，见 loadBoard / resetBoard。
+ */
 function clearReview() {
   reviewData = null;
   reviewPanel?.destroy();
@@ -1455,8 +1637,28 @@ importConfirm.addEventListener('click', () => {
   }
 });
 
+/**
+ * renderAll 画走法区，而 setAnalysis 又要 renderAll（走法区按分析模式决定画不画
+ * 支线）。在画的过程中被关掉分析就会重入一层，所以这面旗让重入的那次直接返回：
+ * 状态已经改好了，正在跑的那一遍会照新状态画完。
+ */
+let renderingAll = false;
+
 function renderAll() {
+  if (renderingAll) return;
+  renderingAll = true;
+  try {
+    paint();
+  } finally {
+    renderingAll = false;
+  }
+}
+
+function paint() {
   clampReview();
+  // 在线对弈要等人时不该开着引擎，所以在这里自动关掉。要赶在画图之前：棋盘下面那份
+  // 棋谱的支线是按分析模式画的，画完了才关掉就会把能点的支线留在屏上。
+  if (analyzing && !analysisAllowed()) setAnalysis(false);
   // Before anything is drawn, so the clocks are painted in the state they are
   // actually in rather than the one they were in a moment ago.
   syncClock();
@@ -1471,8 +1673,10 @@ function renderAll() {
 
   boardView.render({
     board: shown.board(),
-    selected: live ? selected : null,
-    targets: live ? targets : NO_TARGETS,
+    // In analysis mode while reviewing, allow piece selection for creating
+    // variations (see #107).
+    selected: (live || (analyzing && reviewing())) ? selected : null,
+    targets: (live || (analyzing && reviewing())) ? targets : NO_TARGETS,
     lastMove: shownLast ? { from: shownLast.from, to: shownLast.to } : null,
     checkSquare: shownStatus.check ? shown.kingSquare(shownStatus.turn) : null,
   });
@@ -1483,6 +1687,8 @@ function renderAll() {
   renderClocks();
   renderCaptures(plies);
   renderMoves(plies);
+  renderNotation(plies);
+  scrollNotationIntoView();
   renderReviewBar(plies);
   renderAnalysis(plies, shown);
   updateReviewButton();
@@ -1601,23 +1807,42 @@ function renderMoves(plies) {
   // Which ply holds the keyboard. The list is rebuilt whole, so without this a
   // move activated from it — or one arriving from the opponent — would drop
   // focus to the top of the page, and the next Tab would start over.
-  const focusedPly =
-    els.moveList.contains(document.activeElement) && document.activeElement.dataset.ply;
+  const focusedEl = els.moveList.contains(document.activeElement) ? document.activeElement : null;
+  const focusedSel = focusedEl?.dataset.ply
+    ? `button.ply[data-ply="${focusedEl.dataset.ply}"]`
+    : '';
+  // 按回合号分组：标准开局从 1 开始白方先走，但导入带 [FEN] 的残局或从黑方
+  // 先走的局面开局时，ply 0 是黑方的第一手。用 moveLabels 从引擎读回合号和行棋方，
+  // 不再按 ply/2 硬算。
+  const labels = moveLabels(gameOrigin, history);
   const rows = [];
-  for (let i = 0; i < history.length; i += 2) {
-    const row = document.createElement('li');
-    row.className = 'move-row';
+  let cur = null;
+  for (let i = 0; i < history.length; i++) {
+    const lbl = labels[i] ?? { number: Math.floor(i / 2) + 1, white: i % 2 === 0 };
+    if (!cur || cur.number !== lbl.number) {
+      cur = { number: lbl.number, whitePly: null, blackPly: null };
+      rows.push(cur);
+    }
+    if (lbl.white) cur.whitePly = { ply: i, move: history[i] };
+    else cur.blackPly = { ply: i, move: history[i] };
+  }
+  const domRows = [];
+  for (const row of rows) {
+    const li = document.createElement('li');
+    li.className = `move-row${row.number % 2 === 1 ? ' shade' : ''}`;
     const num = document.createElement('span');
     num.className = 'num';
-    num.textContent = `${i / 2 + 1}.`;
-    row.appendChild(num);
-    for (const j of [i, i + 1]) {
-      const move = history[j];
-      if (!move) {
-        // White has moved and Black has not: a blank that holds the column.
-        row.appendChild(Object.assign(document.createElement('span'), { className: 'ply' }));
+    // 白方空着（黑方先走的局面）时显示 `1...` 而不是 `1.`
+    num.textContent = row.whitePly ? `${row.number}.` : `${row.number}...`;
+    li.appendChild(num);
+    for (const slot of [row.whitePly, row.blackPly]) {
+      if (!slot) {
+        // 这一手空着：占位符，让两列对齐。
+        li.appendChild(Object.assign(document.createElement('span'), { className: 'ply' }));
         continue;
       }
+      const j = slot.ply;
+      const move = slot.move;
       const ply = document.createElement('button');
       ply.type = 'button';
       ply.className = 'ply';
@@ -1627,7 +1852,7 @@ function renderMoves(plies) {
       const verdict = reviewData?.results?.[j];
       const mark = verdict ? markFor(verdict) : '';
       if (mark) {
-        ply.classList.add(`ply-annot-${verdict.classification}`);
+        ply.classList.add(CLASSIFY_ANNOT[verdict.classification]);
         const markEl = document.createElement('span');
         markEl.className = 'review-mark';
         markEl.textContent = mark;
@@ -1635,32 +1860,143 @@ function renderMoves(plies) {
       }
       ply.setAttribute(
         'aria-label',
-        `${colorName(move.color)}的第 ${Math.ceil((j + 1) / 2)} 手，${move.san}` +
+        `${colorName(move.color)}的第 ${row.number} 手，${move.san}` +
           (mark ? `，${CLASSIFY_LABEL[verdict.classification]}` : ''),
       );
       if (j + 1 === plies) {
         ply.classList.add('current');
         ply.setAttribute('aria-current', 'true');
       }
-      row.appendChild(ply);
+      li.appendChild(ply);
     }
-    rows.push(row);
+    domRows.push(li);
   }
-  els.moveList.replaceChildren(...rows);
+  els.moveList.replaceChildren(...domRows);
   // Put the keyboard back on the same ply. Scrolling is left to the lines
   // below, which know which move the board is showing.
-  if (focusedPly) {
-    els.moveList
-      .querySelector(`button.ply[data-ply="${focusedPly}"]`)
-      ?.focus({ preventScroll: true });
+  if (focusedSel) {
+    els.moveList.querySelector(focusedSel)?.focus({ preventScroll: true });
   }
   // Scroll only when the move on the board has changed. The list is rebuilt on
   // every render — picking up a piece is one — and a player who has scrolled
   // up to look over the opening should not be yanked back down for it.
-  if (plies !== movesShown.plies || history.length !== movesShown.total) {
-    movesShown = { plies, total: history.length };
+  const seen = `m${plies}`;
+  if (seen !== movesShown.seen || history.length !== movesShown.total) {
+    movesShown = { seen, total: history.length };
     scrollMoveIntoView();
   }
+}
+
+/**
+ * 棋盘正下方那份棋谱：主线 + 括号里的支线，写法照 PGN，和导出的文件一模一样。
+ *
+ * 走法区不写这些 —— 它是记录本，只记走出来的那一条线；另一条线写在这里，要看的
+ * 时候点一下就能跳过去（导出的 PGN 走的是 game/pgn.js 里同一套括号规则）。
+ * 只在分析开着时出现：支线是分析里记下的变化，关了分析就是下棋，棋盘下面留走法。
+ */
+function renderNotation(plies) {
+  const branches = analyzing ? getBranches() : [];
+  els.pgnSheet.classList.toggle('hidden', branches.length === 0);
+  if (branches.length === 0) {
+    els.pgnBody.replaceChildren();
+    return;
+  }
+  const view = getActiveBranch();
+  const sans = mainSans();
+  const labels = moveLabels(gameOrigin, sans);
+  const byIndex = new Map();
+  for (const node of branches) {
+    if (!byIndex.has(node.branchIndex)) byIndex.set(node.branchIndex, []);
+    byIndex.get(node.branchIndex).push(node);
+  }
+  const line = document.createElement('div');
+  line.className = 'pgn-line';
+  const appendBranches = (index) => {
+    for (const node of byIndex.get(index) ?? []) {
+      const el = notationBranch(node, sans.slice(0, index), view);
+      if (el) line.append(' ', el);
+    }
+  };
+  // 顶掉白方第一手的支线前面没有着法可挂，只能写在最前面。
+  appendBranches(0);
+  let lastNumber = null;
+  sans.forEach((san, i) => {
+    const lbl = labels[i] ?? { number: Math.floor(i / 2) + 1, white: i % 2 === 0 };
+    if (lastNumber !== lbl.number) {
+      line.append(` ${lbl.white ? `${lbl.number}.` : `${lbl.number}...`}`);
+    }
+    // 支线打开着的时候，"现在这一手"在括号里，主线这边只是那几条岔路的来路。
+    line.append(' ', pgnPly([], i + 1, san, !view && i + 1 === plies));
+    lastNumber = lbl.number;
+    appendBranches(i + 1);
+  });
+  els.pgnBody.replaceChildren(line);
+}
+
+/**
+ * 一条支线，写成 PGN 那样的一整段括号。往里面再分出去的支线递归套一层，
+ * 缩进由 CSS 自己叠（`.pgn-var` 嵌在 `.pgn-var` 里面）。
+ *
+ * `prefix` 是从开局位置走到这层的分叉点要经过的走法，回合号按它读。
+ */
+function notationBranch(node, prefix, view) {
+  const labels = variationLabels(gameOrigin, prefix, node.moves);
+  if (!labels) return null;
+  const span = document.createElement('span');
+  span.className = 'pgn-var';
+  if (view && samePath(view.path, node.path)) span.classList.add('active');
+  span.append('(');
+  const byIndex = new Map();
+  for (const child of node.children ?? []) {
+    if (!byIndex.has(child.branchIndex)) byIndex.set(child.branchIndex, []);
+    byIndex.get(child.branchIndex).push(child);
+  }
+  // 顶掉这条支线第一个动作的子支线没有前面的走法可以挂，只能写在括号最前面。
+  for (const child of byIndex.get(0) ?? []) {
+    const el = notationBranch(child, prefix, view);
+    if (el) span.append(' ', el);
+  }
+  let lastNumber = null;
+  node.moves.forEach((san, k) => {
+    const lbl = labels[k];
+    if (lastNumber !== lbl.number) {
+      span.append(` ${lbl.white ? `${lbl.number}.` : `${lbl.number}...`}`);
+    }
+    span.append(' ', pgnPly(node.path, k + 1, san, isCurrentBranchPly(view, node.path, k + 1)));
+    lastNumber = lbl.number;
+    for (const child of byIndex.get(k + 1) ?? []) {
+      const el = notationBranch(child, [...prefix, ...node.moves.slice(0, k + 1)], view);
+      if (el) span.append(' ', el);
+    }
+  });
+  span.append(' )');
+  return span;
+}
+
+/**
+ * 一个走法 token：点了把棋盘挪到那条线的这一手上。走法区只记主线，岔路只有这份
+ * 棋谱里有，所以它必须能点（棋谱区只在分析模式出现，见 renderNotation）。
+ */
+function pgnPly(path, ply, san, current) {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'pgn-ply';
+  el.textContent = san;
+  el.dataset.path = path.join(',');
+  el.dataset.ply = String(ply);
+  if (current) {
+    el.classList.add('current');
+    el.setAttribute('aria-current', 'true');
+  }
+  return el;
+}
+
+function isCurrentBranchPly(view, path, ply) {
+  return Boolean(view) && samePath(view.path, path) && view.ply === ply;
+}
+
+function samePath(a, b) {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
 }
 
 /**
@@ -1675,7 +2011,7 @@ function scrollMoveIntoView() {
     list.scrollTop = list.scrollHeight;
     return;
   }
-  const current = list.querySelector('.ply.current');
+  const current = list.querySelector('.move-row .ply.current');
   if (!current) {
     list.scrollTop = 0; // the starting position, above the first move
     return;
@@ -1684,6 +2020,21 @@ function scrollMoveIntoView() {
   const rect = current.getBoundingClientRect();
   if (rect.top < box.top) list.scrollTop += rect.top - box.top;
   else if (rect.bottom > box.bottom) list.scrollTop += rect.bottom - box.bottom;
+}
+
+/**
+ * 棋谱区里同样别让"现在这一手"跑出框外：在支线里按下一步的时候，那份棋谱正是
+ * 唯一还指着那条线的地方。量的还是它自己那个框，不去动外层。
+ */
+function scrollNotationIntoView() {
+  const body = els.pgnBody;
+  if (els.pgnSheet.classList.contains('hidden') || !isViewingBranch()) return;
+  const current = body.querySelector('.pgn-ply.current');
+  if (!current) return;
+  const box = body.getBoundingClientRect();
+  const rect = current.getBoundingClientRect();
+  if (rect.top < box.top) body.scrollTop += rect.top - box.top;
+  else if (rect.bottom > box.bottom) body.scrollTop += rect.bottom - box.bottom;
 }
 
 function renderClocks() {
@@ -1709,27 +2060,34 @@ function renderClocks() {
 
 function renderReviewBar(plies) {
   const total = game.history().length;
+  // Inside an open branch the arrows walk that line, so their end stops are
+  // the ends of the branch, not of the game.
+  const view = analyzing ? getActiveBranch() : null;
+  const branchLen = view ? (getNode(view.path)?.moves.length ?? 0) : 0;
+  const atStart = view ? view.ply === 0 : plies === 0;
+  const atEnd = view ? view.ply >= branchLen : plies >= total;
   // Disabling the focused button blurs it there and then, so note where the
   // keyboard was before the flags below can take it away.
   const focused = document.activeElement;
-  els.reviewFirstBtn.disabled = plies === 0;
-  els.reviewPrevBtn.disabled = plies === 0;
-  els.reviewNextBtn.disabled = plies >= total;
-  els.reviewLastBtn.disabled = plies >= total;
+  els.reviewFirstBtn.disabled = atStart;
+  els.reviewPrevBtn.disabled = atStart;
+  els.reviewNextBtn.disabled = atEnd;
+  els.reviewLastBtn.disabled = atEnd;
   els.pgnCopyBtn.disabled = total === 0;
   els.pgnDownloadBtn.disabled = total === 0;
   // An engine is a coach, and a coach has no business at the board while
-  // somebody is waiting for their turn in an online game. Turning analysis
-  // off here, rather than only refusing the click, also closes the worker, so
-  // no search is left running against a position a person is still thinking
-  // about.
+  // somebody is waiting for their turn in an online game. paint() turns analysis
+  // off before anything is drawn; all this does is keep the button honest about
+  // why it is dark.
   const analysable = analysisAllowed();
   els.analysisBtn.disabled = !analysable;
   els.analysisBtn.title = analysable ? ANALYSIS_TITLE : ANALYSIS_BLOCKED_TITLE;
-  if (!analysable && analyzing) setAnalysis(false);
   keepReviewFocus(focused);
   if (!reviewing()) {
     els.reviewNote.textContent = '';
+  } else if (view) {
+    const played = (getNode(view.path)?.moves ?? []).slice(0, view.ply);
+    els.reviewNote.textContent = played.length ? `支线 ${played.join(' ')}` : '支线起点';
   } else if (plies === 0) {
     els.reviewNote.textContent = '回看开局';
   } else {
@@ -1986,7 +2344,10 @@ function clearSelection() {
 
 function targetsFor(square) {
   const map = new Map();
-  for (const move of game.moves({ square })) {
+  // In analysis mode while reviewing, use the historical position's moves,
+  // not the current game's moves (see #107).
+  const pos = analyzing && reviewing() ? shownPosition(viewPlies()) : game;
+  for (const move of pos.moves({ square })) {
     map.set(move.to, !!move.captured);
   }
   return map;
@@ -1995,7 +2356,17 @@ function targetsFor(square) {
 /** The color the person at this device may pick up right now, or null. */
 function movableColorNow() {
   // An older position is a picture of the game, not a place to play from.
-  if (reviewing() || gameFinished()) return null;
+  // Exception: in analysis mode, the player may try moves from any position
+  // to create variations (see #107). Allow both colors when reviewing in
+  // analysis mode, since we're exploring variations, not playing a real game.
+  if (reviewing() && !analyzing) return null;
+  if (gameFinished() && !analyzing) return null;
+  // In analysis mode while reviewing, allow moves for the color whose turn it
+  // is at the historical position being viewed (not the current game's turn).
+  if (analyzing && reviewing()) {
+    const pos = shownPosition(viewPlies());
+    return pos.turn();
+  }
   if (mode === 'computer') return thinking ? null : myColor;
   if (mode === 'local') return game.turn();
   // In a class both colours sit on the board and the server decides who is
@@ -2028,8 +2399,14 @@ function onSquarePress(square, event) {
     attemptMove(selected, square, { animate: true });
     return;
   }
-  const piece = game.get(square);
-  if (piece && colorOf(piece) === movable && game.turn() === movable) {
+  // When reviewing in analysis mode, get the piece from the historical
+  // position we're viewing, not the current game state (see #107).
+  const pos = analyzing && reviewing() ? shownPosition(viewPlies()) : game;
+  const piece = pos.get(square);
+  // When reviewing in analysis mode, use the turn of the position we're
+  // viewing, not the current game's turn (see #107).
+  const currentTurn = analyzing && reviewing() ? pos.turn() : game.turn();
+  if (piece && colorOf(piece) === movable && currentTurn === movable) {
     pendingToggleOff = selected === square;
     selected = square;
     targets = targetsFor(square);
@@ -2060,8 +2437,14 @@ function onSquareActivate(square) {
     attemptMove(selected, square, { animate: true });
     return;
   }
-  const piece = game.get(square);
-  if (piece && colorOf(piece) === movable && game.turn() === movable) {
+  // When reviewing in analysis mode, get the piece from the historical
+  // position we're viewing, not the current game state (see #107).
+  const pos = analyzing && reviewing() ? shownPosition(viewPlies()) : game;
+  const piece = pos.get(square);
+  // When reviewing in analysis mode, use the turn of the position we're
+  // viewing, not the current game's turn (see #107).
+  const currentTurn = analyzing && reviewing() ? pos.turn() : game.turn();
+  if (piece && colorOf(piece) === movable && currentTurn === movable) {
     selected = square;
     targets = targetsFor(square);
     renderAll();
@@ -2086,7 +2469,117 @@ function onDrop(from, to, moved) {
   renderAll();
 }
 
+/**
+ * 把复盘位上走出的这一手写进棋谱。
+ *
+ * - 这一手本来就在看着的那条线上：往前走一步就完事，别另起一支（重复点同一手会
+ *   多出支线就是这么来的）。
+ * - 主线中途改走别的手：这一手升级成主线，原来的后面那一截降级成支线。走法区是
+ *   记录本 —— 你走的是哪条线，它就记哪条线。
+ * - 支线中途改走别的手：挂在它下面，旧的那一截留着。那才是"当时还可以这样"。
+ * - 支线末尾：续着这条支线往下走。
+ */
+function recordBranchMove(san) {
+  const main = mainSans();
+  const view = getActiveBranch();
+  if (!view) {
+    const ply = viewPlies();
+    if (main[ply] === san) {
+      reviewIndex = ply + 1; // 走到最新一手的下一格，clampReview 会把视角放回 live
+      return;
+    }
+    const known = findBranch([], ply, san);
+    if (known) {
+      enterBranch(known, 1);
+      return;
+    }
+    if (mode === 'online' || mode === 'class') {
+      // 主线是裁判记的那一份，本地无权改写：这一手只作为支线留下来。
+      const path = branchAt([], ply, san);
+      if (path) {
+        enterBranch(path, 1);
+        showToast(`已记下支线（${san}）—— 在线对弈里主线得听裁判的`);
+      }
+      return;
+    }
+    promoteLine(ply, san, main);
+    return;
+  }
+
+  const node = getNode(view.path);
+  if (!node) {
+    setActiveBranch(null);
+    return;
+  }
+  const replaced = existingMoveAt(view.path, view.ply, main);
+  if (replaced === null) {
+    appendToBranch(view.path, san);
+    setActiveBranch(view.path, view.ply + 1);
+    return;
+  }
+  if (replaced === san) {
+    // 这一手就是上面那条线本来走的：跳到那条线的下一格。
+    const parent = view.path.slice(0, -1);
+    if (view.ply !== 0) {
+      setActiveBranch(view.path, view.ply + 1);
+    } else if (parent.length === 0) {
+      setActiveBranch(null);
+      reviewIndex = node.branchIndex + 1;
+    } else {
+      const outer = getNode(parent);
+      setActiveBranch(parent, outer ? node.branchIndex + 1 : 1);
+    }
+    return;
+  }
+  const known = findBranch(view.path, view.ply, san);
+  if (known) {
+    setActiveBranch(known, 1);
+    return;
+  }
+  const path = branchAt(view.path, view.ply, san);
+  if (path) setActiveBranch(path, 1);
+}
+
+/**
+ * 主线换到 `ply` 处的另一手：新走法成为主线，旧的那一截降级成支线。
+ *
+ * 棋盘是主线唯一的真相（`game`），所以这里要按新的 SAN 列表把它重摆一遍。走不通
+ * 就停在能走的地方 —— 重放用的是同一批 SAN，理论上不该断，断了也不能留一个说不清
+ * 是哪盘的棋盘在屏上。
+ */
+function promoteLine(ply, san, main) {
+  const next = promoteMainLine(main, ply, san);
+  if (!next) return;
+  setActiveBranch(null);
+  game.load(gameOrigin);
+  for (const move of next) {
+    if (!game.move(move)) break;
+  }
+  // 改走的这一手就是最新的一手：时间轴回到 live，走法区不再停在中间某一步。
+  reviewIndex = null;
+  clockStack.length = Math.min(clockStack.length, next.length);
+  announcedPlies = Math.min(announcedPlies, next.length);
+  truncateReview(ply);
+  showToast(`已把 ${san} 变成主线，原来的 ${main.length - ply} 手收进支线`);
+}
+
 function attemptMove(from, to, { animate }) {
+  // 分析模式里回头看旧局面时，这一手是在改棋谱而不是在下棋（见 #107）。要赶在拿
+  // live game 校验之前处理：显示的那个局面和棋盘现在的 turn 可能已经不是一回事。
+  if (analyzing && reviewing()) {
+    const played = shownPosition(viewPlies()).move({ from, to });
+    if (!played) {
+      clearSelection();
+      renderAll();
+      return;
+    }
+    recordBranchMove(played.san);
+    clearSelection();
+    renderAll();
+    announceReview();
+    return;
+  }
+
   const candidates = game.moves({ square: from }).filter((m) => m.to === to);
   if (candidates.length === 0) {
     clearSelection();
@@ -3493,6 +3986,8 @@ function currentPgn(date) {
     termination: end ? end.termination : 'unterminated',
     // 从别的局面开走的棋要把它写进棋谱，不然这份文件再导回来就变成另一盘。
     startFen: fenCore(gameOrigin) === fenCore(START_FEN) ? null : gameOrigin,
+    // 分析里记下的支线树一起写出去（PGN 的括号段），不然换到别的软件就只剩主线。
+    variations: getBranches(),
   };
 
   // Use annotated PGN if review data is available
@@ -3650,10 +4145,10 @@ els.timeSelect.addEventListener('change', () => {
   renderAll();
 });
 
-els.reviewFirstBtn.addEventListener('click', () => goToPly(0));
-els.reviewPrevBtn.addEventListener('click', () => goToPly(viewPlies() - 1));
-els.reviewNextBtn.addEventListener('click', () => goToPly(viewPlies() + 1));
-els.reviewLastBtn.addEventListener('click', () => goToPly(game.history().length));
+els.reviewFirstBtn.addEventListener('click', () => reviewNavigate('first'));
+els.reviewPrevBtn.addEventListener('click', () => reviewNavigate('prev'));
+els.reviewNextBtn.addEventListener('click', () => reviewNavigate('next'));
+els.reviewLastBtn.addEventListener('click', () => reviewNavigate('last'));
 els.analysisBtn.addEventListener('click', () => setAnalysis(!analyzing));
 els.reviewGameBtn.addEventListener('click', () => {
   if (reviewData) {
@@ -3666,9 +4161,26 @@ els.reviewGameBtn.addEventListener('click', () => {
 els.tacticsBtn.addEventListener('click', () => toggleTacticsMode());
 
 // The move list is rebuilt on every render, so the click lands on the list.
+// 记录本里只有主线：支线在棋盘下方那份棋谱上点，见 els.pgnBody。
 els.moveList.addEventListener('click', (e) => {
   const ply = e.target.closest('button.ply');
   if (ply) goToPly(Number(ply.dataset.ply));
+});
+
+// 棋盘下方那份棋谱：括号里的走法点一下就把棋盘挪到那条支线上，主线那一段还是
+// 普通的跳步。只有分析开着时这些 token 才是按钮（见 pgnPly）。
+els.pgnBody.addEventListener('click', (e) => {
+  const token = e.target.closest('.pgn-ply');
+  if (!token || !analyzing) return;
+  const path = (token.dataset.path ?? '').split(',').filter(Boolean).map(Number);
+  const ply = Number(token.dataset.ply);
+  if (!path.length) {
+    goToPly(ply);
+    return;
+  }
+  if (!enterBranch(path, ply)) return;
+  renderAll();
+  announceReview();
 });
 
 els.pgnCopyBtn.addEventListener('click', copyPgn);
@@ -3762,10 +4274,10 @@ window.addEventListener('keydown', (e) => {
   }
   const plies = viewPlies();
   switch (e.key) {
-    case 'ArrowLeft': goToPly(plies - 1); break;
-    case 'ArrowRight': goToPly(plies + 1); break;
-    case 'Home': goToPly(0); break;
-    case 'End': goToPly(game.history().length); break;
+    case 'ArrowLeft': reviewNavigate('prev'); break;
+    case 'ArrowRight': reviewNavigate('next'); break;
+    case 'Home': reviewNavigate('first'); break;
+    case 'End': reviewNavigate('last'); break;
     default: return;
   }
   e.preventDefault();

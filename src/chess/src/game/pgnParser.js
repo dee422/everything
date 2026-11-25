@@ -82,15 +82,16 @@ export function parsePgn(pgn) {
       continue;
     }
 
-    // Variation (nested parentheses)
+    // Variation (nested parentheses): skipped, the main line goes on without it.
+    // tokenize() 把配平的一整对括号合成**一个** token（`(1... c5 2. Nf3)`），所以
+    // 得先看手上这个自己收没收口，再往外数 —— 只有嵌套时它才被拆成好几段。少了
+    // 这一步，跳过会一路吃到下一个 ')' 为止，把主线后半段连同结果一起吞掉。
     if (token.startsWith('(')) {
-      // For now, skip variations (they're complex to handle properly)
-      // A full implementation would recursively parse and store them
-      let depth = 1;
-      while (i < tokens.length && depth > 0) {
+      let depth = token.endsWith(')') ? 0 : 1;
+      while (depth > 0 && i + 1 < tokens.length) {
         i++;
         if (tokens[i].startsWith('(')) depth++;
-        else if (tokens[i].endsWith(')')) depth--;
+        if (tokens[i].endsWith(')')) depth--;
       }
       continue;
     }

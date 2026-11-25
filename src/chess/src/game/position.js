@@ -18,6 +18,75 @@ function apply(replay, move) {
 }
 
 /**
+ * 一步走法：SAN 字符串（`'e4'`）或 verbose 对象（`{from, to, promotion}`）都吃。
+ * 走不通返回 null —— 引擎对假着就是这么答复，不会抛。
+ */
+function step(replay, move) {
+  if (!move) return null;
+  return typeof move === 'string' ? replay.move(move) : apply(replay, move);
+}
+
+/**
+ * 每个 ply 之前那一步的回合号与行棋方，来自开局位置本身（不是 ply/2 硬算）。
+ *
+ * 标准开局从 1 开始白方先走，所以 `ply/2 + 1` 看起来对，但导入带 [FEN] 的残局
+ * 或从黑方先走的局面开局时，硬算会把回合号和行棋方都写错。这里从棋盘的
+ * `moveNumber()` / `turn()` 读，引擎说什么就是什么。
+ *
+ * @param {string} originFen - 开局 FEN
+ * @param {(string|object)[]} history - SAN 字符串或 verbose move 对象
+ * @returns {{ number: number, white: boolean }[]}
+ */
+export function moveLabels(originFen, history) {
+  const labels = [];
+  let replay;
+  try {
+    replay = new Chess(originFen);
+  } catch {
+    return labels;
+  }
+  for (let i = 0; i < history.length; i++) {
+    labels.push({ number: replay.moveNumber(), white: replay.turn() === 'w' });
+    // move 可以是 SAN 字符串（'e4'）或 verbose 对象（{from, to, promotion}）
+    if (!step(replay, history[i])) break;
+  }
+  return labels;
+}
+
+/**
+ * 支线括号段里每一手的回合号与行棋方：先把分叉点之前的走法 `prefix` 走完，
+ * 接着走 `moves`（SAN 字符串）。
+ *
+ * 分叉点之前的走法要按**绝对路径**给（主线那一段 + 上层支线里分叉点之前的几手），
+ * 因为支线是可以一层套一层的，而引擎只认"从开局位置一路走过来"。
+ *
+ * 走不通就返回 null，而且是一整条不写：replay 不到分叉点、或支线里有一手假着，
+ * 写进棋谱就别无解释 —— 别的软件读到假着会把整盘停在那里，比少一条支线糟得多。
+ *
+ * @param {string} originFen - 这盘棋的开局 FEN
+ * @param {string[]} prefix - 分叉点之前的全部走法（从开局位置数下来）
+ * @param {string[]} moves - 支线走法（SAN）
+ * @returns {{ number: number, white: boolean }[] | null}
+ */
+export function variationLabels(originFen, prefix, moves) {
+  let replay;
+  try {
+    replay = new Chess(originFen);
+  } catch {
+    return null;
+  }
+  for (const san of prefix ?? []) {
+    if (!step(replay, san)) return null;
+  }
+  const labels = [];
+  for (const san of moves) {
+    labels.push({ number: replay.moveNumber(), white: replay.turn() === 'w' });
+    if (!step(replay, san)) return null;
+  }
+  return labels;
+}
+
+/**
  * 第 `plies` 手之后的局面（`plies === 0` 就是开局位置）。
  * 走不通时返回 null —— 调用方手里的 history 与开局位置不配套。
  */

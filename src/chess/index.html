@@ -166,12 +166,6 @@
               <ol class="eval-lines" id="eval-lines"></ol>
               <p class="eval-note" id="eval-note"></p>
             </section>
-            <section class="review-progress-section hidden" id="review-progress-section">
-              <div id="review-progress-container"></div>
-            </section>
-            <section class="review-section hidden" id="review-result-panel" aria-label="复盘报告">
-              <div id="review-panel-container"></div>
-            </section>
             <section class="tactics-section hidden" id="tactics-panel-section" aria-label="题库练习">
               <div id="tactics-panel-container"></div>
             </section>
@@ -202,6 +196,23 @@
               <i data-lucide="trash-2"></i>
             </button>
           </div>
+          <!-- 主线带支线的棋谱另开一页，放在棋盘正下方：走法区是记录本，只记走出来的
+               那一条线，括号里的另一条得另放才看得清（写法照 ChessBase 的注释窗）。 -->
+          <section class="pgn-sheet hidden" id="pgn-sheet" aria-label="棋谱：主线与支线">
+            <div class="pgn-head">
+              <h2 class="pgn-title">棋谱</h2>
+              <p class="pgn-note">括号里是当时另走过的一条线，点一下就能跳过去。</p>
+            </div>
+            <div class="pgn-body" id="pgn-body"></div>
+          </section>
+          <!-- 复盘报告放在棋盘下方而不是左侧走法卡里：那一栏只有 280px，评估曲线
+               挤成一条看不清起伏，多分支棋谱和教练的批注更放不下。 -->
+          <section class="review-progress-section hidden" id="review-progress-section">
+            <div id="review-progress-container"></div>
+          </section>
+          <section class="review-sheet hidden" id="review-result-panel" aria-label="复盘报告">
+            <div class="review-panel" id="review-panel-container"></div>
+          </section>
         </section>
 
         <aside class="sidebar">
@@ -332,6 +343,15 @@
             </p>
             <button class="btn btn-ghost btn-block" id="resend-btn" type="button">重发邮件</button>
             <p class="online-error" id="verify-error" role="alert" hidden></p>
+          </section>
+
+          <!-- 推荐教练：占位，等营地老师入驻后再填真实内容。 -->
+          <section class="card coach-card" id="coach-card" aria-labelledby="coach-title">
+            <h2 class="card-title" id="coach-title">推荐教练</h2>
+            <p class="coach-note">
+              想找人带一带？这里会列出营地认证的国际象棋教练，按你的水平和目标匹配。
+            </p>
+            <p class="coach-coming-soon">教练入驻中，敬请期待。</p>
           </section>
 
           <section class="card player-card" id="card-top">

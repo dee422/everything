@@ -48,10 +48,10 @@ describe('classifyMove', () => {
   });
 
   it('classifies a good move when eval loss is below inaccuracy threshold', () => {
-    // White loses 30cp (below 50)
-    const result = classifyMove(100, 70, 'w', 'e2e4', 'd2d4');
+    // White loses 15cp (below 20)
+    const result = classifyMove(100, 85, 'w', 'e2e4', 'd2d4');
     expect(result.classification).toBe('good');
-    expect(result.loss).toBe(30);
+    expect(result.loss).toBe(15);
   });
 
   it('handles Black moves correctly (eval increase is loss for Black)', () => {
@@ -84,7 +84,7 @@ describe('thresholds', () => {
   it('exports the classification thresholds', () => {
     expect(CLASSIFY_THRESHOLDS.blunder).toBe(200);
     expect(CLASSIFY_THRESHOLDS.mistake).toBe(100);
-    expect(CLASSIFY_THRESHOLDS.inaccuracy).toBe(50);
+    expect(CLASSIFY_THRESHOLDS.inaccuracy).toBe(20);
   });
 
   it('marks each classification with its written glyph and NAG', () => {

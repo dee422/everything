@@ -19,11 +19,11 @@
 import { scoreToCentipawns, uciToMove } from '../engine/stockfish.js';
 import { Chess } from '../engine/chess.js';
 
-/** 分类阈值（centipawns）。 */
+/** 分类阈值（centipawns）。好棋要求跟引擎首选差距 ≤ 20 厘兵（约 1/5 子）。 */
 export const CLASSIFY_THRESHOLDS = {
   blunder: 200,
   mistake: 100,
-  inaccuracy: 50,
+  inaccuracy: 20,
 };
 
 /**
@@ -94,13 +94,17 @@ export const CLASSIFY_LABEL = {
   best: '最佳',
 };
 
-/** 分类的颜色（用于 UI）。 */
-export const CLASSIFY_COLOR = {
-  blunder: '#e74c3c',
-  mistake: '#e67e22',
-  inaccuracy: '#f1c40f',
-  good: '#2ecc71',
-  best: '#27ae60',
+/**
+ * 分类 → 配色用的 CSS 类名（`.annot-*` 在 style.css 里按主题变量上色）。
+ * 界面层只加类名，别再往元素上写颜色字面量：写死的十六进制只有一套房能看，
+ * 浅色主题下灰底白字直接读不出来（2026-11-25 复盘面板就是这样）。
+ */
+export const CLASSIFY_ANNOT = {
+  blunder: 'annot-blunder',
+  mistake: 'annot-mistake',
+  inaccuracy: 'annot-inaccuracy',
+  good: 'annot-good',
+  best: 'annot-best',
 };
 
 /**

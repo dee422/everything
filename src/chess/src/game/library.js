@@ -12,7 +12,13 @@
  * The list is capped, and what falls off the end is the oldest game. Sixty
  * long games is a few hundred kilobytes, and a player who needs an older one
  * should have exported it while it was on screen.
+ *
+ * Server sync: when the player is logged in, games are also stored on the
+ * server. syncFromServer() pulls the server list and merges it into
+ * localStorage; pushToServer() and deleteFromServer() write changes back.
  */
+
+import { call } from '../net/auth.js';
 
 const KEY = 'chess-library';
 const FORMAT = 1;
@@ -164,4 +170,72 @@ export function clearLibrary() {
   } catch {
     // Nothing else to try.
   }
+}
+
+// --- Server sync ---
+
+/**
+ * Pull the server list and merge it into localStorage. Games are merged by
+ * game_id: a game already present is updated (server wins), a new game is
+ * appended. The merged list is then capped to MAX_GAMES.
+ *
+ * Returns the merged list, or the current localStorage list if the server
+ * call fails (offline, not logged in, etc). Never throws.
+ */
+export async function syncFromServer() {
+  const reply = await call('chess_library_list.php', { method: 'GET' });
+  if (!reply.ok || !Array.isArray(reply.games)) {
+    return loadLibrary();
+  }
+
+  const serverGames = reply.games.map(parseEntry).filter(Boolean);
+  const localGames = loadLibrary();
+
+  // Merge: server wins on conflict (same game_id)
+  const byId = new Map();
+  for (const game of localGames) {
+    byId.set(game.id, game);
+  }
+  for (const game of serverGames) {
+    byId.set(game.id, game);
+  }
+
+  const merged = Array.from(byId.values())
+    .sort((a, b) => b.at - a.at)
+    .slice(0, MAX_GAMES);
+
+  // Write back to localStorage
+  const store = storage();
+  if (store) {
+    try {
+      store.setItem(KEY, JSON.stringify(merged.map(storedForm)));
+    } catch {
+      // Storage full or unavailable: the merge is still in memory
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Push one game to the server. Called after addEntry() when logged in.
+ * Returns true on success, false on failure. Never throws.
+ */
+export async function pushToServer(entry) {
+  const parsed = parseEntry({ ...entry, v: FORMAT });
+  if (!parsed) return false;
+
+  const reply = await call('chess_library_save.php', { body: parsed });
+  return reply.ok === true;
+}
+
+/**
+ * Delete one game from the server. Called after removing a game from
+ * localStorage. Returns true on success, false on failure. Never throws.
+ */
+export async function deleteFromServer(gameId) {
+  if (typeof gameId !== 'string' || gameId === '') return false;
+
+  const reply = await call('chess_library_delete.php', { body: { id: gameId } });
+  return reply.ok === true;
 }

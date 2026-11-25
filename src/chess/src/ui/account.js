@@ -12,6 +12,7 @@
  */
 
 import { makeAccountApi, verifyNews } from '../net/auth.js';
+import { syncFromServer } from '../game/library.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -154,6 +155,9 @@ export function mountAccount({ showToast, onSignOut = () => {} }) {
     el.signinPassword.value = '';
     el.dialog.close();
     showToast(`已登录为 ${player?.nickname ?? '你'}。`);
+    // Pull the server library into localStorage so the panel shows all games
+    // across devices, not just the ones from this browser.
+    syncFromServer();
   }
 
   /**

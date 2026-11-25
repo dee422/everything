@@ -11,13 +11,15 @@
 
 import {
   CLASSIFY_LABEL,
-  CLASSIFY_COLOR,
+  CLASSIFY_ANNOT,
+  CLASSIFY_THRESHOLDS,
   computeAccuracy,
   countClassifications,
   findCriticalMoments,
   markFor,
 } from '../game/review.js';
 import { buildReviewSummary } from '../game/summary.js';
+import { moveLabels } from '../game/position.js';
 import { mountEvalGraph } from './evalGraph.js';
 
 /**
@@ -27,16 +29,17 @@ import { mountEvalGraph } from './evalGraph.js';
  * @param {object} options
  * @param {object[]} options.results - analyzeGame 的返回值
  * @param {string[]} options.sans - 每手棋的 SAN 格式
+ * @param {string} options.gameOrigin - 开局 FEN，用于算回合号
  * @param {function} options.onPlyClick - 点击走法时的回调 (ply) => void
  * @param {'w'|'b'|null} [options.viewerColor] - 看棋的人执哪方，小结用它说"你/对方"
  * @returns {{ update: function, destroy: function }}
  */
-export function mountReviewPanel(container, { results, sans, onPlyClick, viewerColor = null }) {
+export function mountReviewPanel(container, { results, sans, gameOrigin, onPlyClick, viewerColor = null }) {
   container.innerHTML = '';
   container.classList.add('review-panel');
 
   // 小结放在最前面：教练先在纸上手写的那几句，扫一眼就知道该看哪几手
-  const summaryLines = buildReviewSummary(results, sans, { viewerColor });
+  const summaryLines = buildReviewSummary(results, sans, { viewerColor, gameOrigin });
   if (summaryLines.length > 0) {
     const summarySection = createSection('小结');
     summarySection.appendChild(createSummaryList(summaryLines));
@@ -55,6 +58,11 @@ export function mountReviewPanel(container, { results, sans, onPlyClick, viewerC
   statsSection.appendChild(createStatsDisplay(counts, results.length));
   container.appendChild(statsSection);
 
+  // 阈值说明
+  const legendSection = createSection('标注说明');
+  legendSection.appendChild(createThresholdLegend());
+  container.appendChild(legendSection);
+
   // 评估曲线
   const graphSection = createSection('评估曲线');
   const graphContainer = document.createElement('div');
@@ -62,19 +70,19 @@ export function mountReviewPanel(container, { results, sans, onPlyClick, viewerC
   graphSection.appendChild(graphContainer);
   container.appendChild(graphSection);
 
-  const graph = mountEvalGraph(graphContainer, results, onPlyClick);
+  const graph = mountEvalGraph(graphContainer, results, sans, gameOrigin, onPlyClick);
 
   // 关键转折点
   const moments = findCriticalMoments(results, 5);
   if (moments.length > 0) {
     const momentsSection = createSection('关键转折');
-    momentsSection.appendChild(createMomentsList(moments, results, sans, onPlyClick));
+    momentsSection.appendChild(createMomentsList(moments, results, sans, gameOrigin, onPlyClick));
     container.appendChild(momentsSection);
   }
 
   // 走法列表
   const movesSection = createSection('走法详情');
-  movesSection.appendChild(createMovesList(results, sans, onPlyClick));
+  movesSection.appendChild(createMovesList(results, sans, gameOrigin, onPlyClick));
   container.appendChild(movesSection);
 
   return {
@@ -112,13 +120,15 @@ function createAccuracyDisplay(accuracy) {
   const div = document.createElement('div');
   div.className = 'review-accuracy';
 
+  // 三个数字都用主题变量上色（见 style.css 的 .review-accuracy-value）。
+  // 这里曾经写死 #fff/#888：浅色主题下灰底白字，"白方 24.8%" 根本看不见。
   const items = [
-    { label: '白方', value: accuracy.white, color: '#fff' },
-    { label: '黑方', value: accuracy.black, color: '#888' },
-    { label: '总体', value: accuracy.overall, color: '#4fc3f7' },
+    { label: '白方', value: accuracy.white, cls: 'acc-plain' },
+    { label: '黑方', value: accuracy.black, cls: 'acc-plain' },
+    { label: '总体', value: accuracy.overall, cls: 'acc-overall' },
   ];
 
-  for (const { label, value, color } of items) {
+  for (const { label, value, cls } of items) {
     const item = document.createElement('div');
     item.className = 'review-accuracy-item';
 
@@ -128,8 +138,7 @@ function createAccuracyDisplay(accuracy) {
     item.appendChild(labelEl);
 
     const valueEl = document.createElement('span');
-    valueEl.className = 'review-accuracy-value';
-    valueEl.style.color = color;
+    valueEl.className = `review-accuracy-value ${cls}`;
     valueEl.textContent = `${value.toFixed(1)}%`;
     item.appendChild(valueEl);
 
@@ -149,8 +158,7 @@ function createStatsDisplay(counts, total) {
     item.className = 'review-stat-item';
 
     const dot = document.createElement('span');
-    dot.className = 'review-stat-dot';
-    dot.style.backgroundColor = CLASSIFY_COLOR[cat];
+    dot.className = `review-stat-dot ${CLASSIFY_ANNOT[cat]}`;
     item.appendChild(dot);
 
     const label = document.createElement('span');
@@ -175,9 +183,11 @@ function createStatsDisplay(counts, total) {
   return div;
 }
 
-function createMomentsList(moments, results, sans, onPlyClick) {
+function createMomentsList(moments, results, sans, gameOrigin, onPlyClick) {
   const list = document.createElement('div');
   list.className = 'review-moments-list';
+  // 回合号从开局位置读，不再按 ply/2 硬算
+  const labels = moveLabels(gameOrigin, sans);
 
   for (const moment of moments) {
     const result = results[moment.ply];
@@ -188,20 +198,18 @@ function createMomentsList(moments, results, sans, onPlyClick) {
     item.style.cursor = 'pointer';
     item.dataset.ply = moment.ply;
 
-    const moveNum = Math.floor(moment.ply / 2) + 1;
-    const isWhite = moment.ply % 2 === 0;
+    const lbl = labels[moment.ply] ?? { number: Math.floor(moment.ply / 2) + 1, white: moment.ply % 2 === 0 };
     const san = sans[moment.ply] || '...';
 
     const moveEl = document.createElement('span');
-    moveEl.className = 'review-moment-move';
-    moveEl.textContent = `${moveNum}.${isWhite ? '' : '..'} ${san}`;
+    moveEl.className = `review-moment-move ${CLASSIFY_ANNOT[result.classification] || ''}`;
+    moveEl.textContent = `${lbl.number}.${lbl.white ? '' : '..'} ${san}`;
     const mark = markSpan(result);
     if (mark) moveEl.appendChild(mark);
     item.appendChild(moveEl);
 
     const lossEl = document.createElement('span');
-    lossEl.className = 'review-moment-loss';
-    lossEl.style.color = CLASSIFY_COLOR[result.classification];
+    lossEl.className = `review-moment-loss ${CLASSIFY_ANNOT[result.classification] || ''}`;
     lossEl.textContent = `-${(moment.swing / 100).toFixed(2)}`;
     item.appendChild(lossEl);
 
@@ -212,9 +220,11 @@ function createMomentsList(moments, results, sans, onPlyClick) {
   return list;
 }
 
-function createMovesList(results, sans, onPlyClick) {
+function createMovesList(results, sans, gameOrigin, onPlyClick) {
   const list = document.createElement('div');
   list.className = 'review-moves-list';
+  // 回合号从开局位置读，不再按 ply/2 硬算
+  const labels = moveLabels(gameOrigin, sans);
 
   // 按回合分组（每回合两手棋）
   for (let i = 0; i < results.length; i += 2) {
@@ -224,7 +234,8 @@ function createMovesList(results, sans, onPlyClick) {
     // 回合号
     const numEl = document.createElement('span');
     numEl.className = 'review-moves-num';
-    numEl.textContent = `${Math.floor(i / 2) + 1}.`;
+    const lbl = labels[i] ?? { number: Math.floor(i / 2) + 1, white: true };
+    numEl.textContent = `${lbl.number}.`;
     row.appendChild(numEl);
 
     // 白方走法
@@ -250,11 +261,11 @@ function createMoveItem(result, san, ply, onPlyClick) {
   item.style.cursor = 'pointer';
 
   if (result.classification) {
-    item.classList.add(`review-move-${result.classification}`);
+    item.classList.add(CLASSIFY_ANNOT[result.classification]);
   }
 
   item.textContent = san || '...';
-  const mark = markSpan(result.classification);
+  const mark = markSpan(result);
   if (mark) item.appendChild(mark);
 
   // 悬停提示
@@ -266,7 +277,7 @@ function createMoveItem(result, san, ply, onPlyClick) {
   return item;
 }
 
-/** SAN 后面的标注符号。颜色由外层 `.review-move-*` 决定，这里只管加粗。 */
+/** SAN 后面的标注符号。颜色由外层 `.annot-*` 决定，这里只管加粗。 */
 function markSpan(result) {
   const mark = markFor(result);
   if (!mark) return null;
@@ -327,4 +338,42 @@ export function mountReviewProgress(container) {
       container.innerHTML = '';
     },
   };
+}
+
+/** 标注说明：列出每个分类的符号、名称和阈值。 */
+function createThresholdLegend() {
+  const legend = document.createElement('div');
+  legend.className = 'review-threshold-legend';
+
+  const items = [
+    { annot: 'best', label: '最佳', desc: '和引擎首选一致' },
+    { annot: 'good', label: '好棋', desc: `亏损 ≤ ${CLASSIFY_THRESHOLDS.inaccuracy} 厘兵` },
+    { annot: 'inaccuracy', label: '不精确', desc: `亏损 ${CLASSIFY_THRESHOLDS.inaccuracy}–${CLASSIFY_THRESHOLDS.mistake} 厘兵` },
+    { annot: 'mistake', label: '错着', desc: `亏损 ${CLASSIFY_THRESHOLDS.mistake}–${CLASSIFY_THRESHOLDS.blunder} 厘兵` },
+    { annot: 'blunder', label: '漏着', desc: `亏损 > ${CLASSIFY_THRESHOLDS.blunder} 厘兵` },
+  ];
+
+  for (const { annot, label, desc } of items) {
+    const row = document.createElement('div');
+    row.className = 'review-threshold-row';
+
+    const mark = document.createElement('span');
+    mark.className = `review-threshold-mark ${CLASSIFY_ANNOT[annot] || ''}`;
+    mark.textContent = CLASSIFY_LABEL[annot] || '';
+    row.appendChild(mark);
+
+    const name = document.createElement('span');
+    name.className = 'review-threshold-name';
+    name.textContent = label;
+    row.appendChild(name);
+
+    const description = document.createElement('span');
+    description.className = 'review-threshold-desc';
+    description.textContent = desc;
+    row.appendChild(description);
+
+    legend.appendChild(row);
+  }
+
+  return legend;
 }
