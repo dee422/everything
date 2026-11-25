@@ -56,8 +56,8 @@
 /* The app is sized to the viewport and never scrolls the page: a document
    scrollbar that appears or disappears (a dialog opening, the sidebar growing
    when an online game ends) would shift every column sideways. Anything that
-   can outgrow its space scrolls inside its own box instead — see .move-list
-   and, on narrow screens, .layout. */
+   can outgrow its space scrolls inside its own box instead — see .move-list,
+   and .layout on narrow screens or while the review report is open. */
 html {
   height: 100%;
 }
@@ -2714,6 +2714,30 @@ select:focus-visible {
   }
 }
 
+/* 复盘报告打开时，宽屏也像窄屏一样让整个 .layout 滚动：棋盘列不再按视口
+   高度限制，报告排在棋盘下按自然高度展开。之前它被棋盘列的剩余高度压成
+   一条，内层小框怎么滚都只看得到开头几行。 */
+@media (min-width: 1024px) {
+  body.review-open .layout {
+    grid-template-rows: none;
+    align-items: start;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+
+  body.review-open .board-column {
+    container-type: normal;
+    min-height: auto;
+    overflow-y: visible;
+  }
+
+  /* 棋盘列不再是尺寸容器，cqh 算不出列高，改用窗口高度定棋盘。 */
+  body.review-open .board-frame {
+    width: min(100%, calc(100dvh - 260px));
+  }
+}
+
 @media (max-width: 420px) {
   .button-row {
     grid-template-columns: 1fr;
@@ -2765,6 +2789,17 @@ select:focus-visible {
 
 .review-sheet .review-panel {
   max-height: 480px;
+}
+
+/* 报告打开后 body 带 review-open（见 main.js）：它是拿来读的，不再塞进一截
+   小框里滚。按自然高度展开，由主区整体滚动带着走。 */
+body.review-open .review-sheet {
+  max-height: none;
+  overflow: visible;
+}
+
+body.review-open .review-sheet .review-panel {
+  max-height: none;
 }
 
 .review-section {

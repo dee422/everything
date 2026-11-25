@@ -1239,6 +1239,16 @@ function paintReviewToggle(on) {
   els.reviewGameBtn.setAttribute('aria-pressed', String(on));
 }
 
+/**
+ * 显示/收起复盘报告。body 上的 review-open 让主区改为整页滚动：报告很长，
+ * 不能再被棋盘列的剩余高度压成一条（那样只有内层小框在滚，正文看不到）。
+ */
+function setReviewReportOpen(open) {
+  els.reviewResultPanel.classList.toggle('hidden', !open);
+  document.body.classList.toggle('review-open', open);
+  paintReviewToggle(open);
+}
+
 /** 开始复盘分析。 */
 async function startReview() {
   if (reviewAnalyzing || !canReview()) return;
@@ -1248,8 +1258,7 @@ async function startReview() {
 
   // 显示进度条
   els.reviewProgressSection.classList.remove('hidden');
-  els.reviewResultPanel.classList.add('hidden');
-  paintReviewToggle(false);
+  setReviewReportOpen(false);
   reviewProgress = mountReviewProgress(els.reviewProgressContainer);
 
   // Every position the game passed through, replayed the same way the review
@@ -1305,8 +1314,7 @@ async function startReview() {
 /** 把已经算好的结论装进棋盘下方那份报告。 */
 function showReviewResults() {
   els.reviewProgressSection.classList.add('hidden');
-  els.reviewResultPanel.classList.remove('hidden');
-  paintReviewToggle(true);
+  setReviewReportOpen(true);
   reviewProgress?.destroy();
   reviewProgress = null;
   // 主线换段之后要重装一遍：面板里那份走法列表、曲线和小结都是按旧的结论建的。
@@ -1333,10 +1341,9 @@ function clearReview() {
   reviewProgress?.destroy();
   reviewProgress = null;
   els.reviewProgressSection.classList.add('hidden');
-  els.reviewResultPanel.classList.add('hidden');
+  setReviewReportOpen(false);
   els.reviewPanelContainer.innerHTML = '';
   els.reviewProgressContainer.innerHTML = '';
-  paintReviewToggle(false);
 }
 
 /** 更新复盘面板的当前局面高亮。 */
@@ -4465,8 +4472,7 @@ els.analysisBtn.addEventListener('click', () => setAnalysis(!analyzing));
 els.reviewGameBtn.addEventListener('click', () => {
   if (reviewData) {
     // 已有复盘数据，切换显示
-    els.reviewResultPanel.classList.toggle('hidden');
-    paintReviewToggle(!els.reviewResultPanel.classList.contains('hidden'));
+    setReviewReportOpen(els.reviewResultPanel.classList.contains('hidden'));
   } else {
     startReview();
   }
