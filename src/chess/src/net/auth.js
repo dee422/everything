@@ -62,6 +62,14 @@ const PROBLEM_TEXT = {
   bad_pref: '有一项没选上，或者选得比上限还多。',
   long_note: '补充说明太长了，缩一缩再存。',
   bad_note: '补充说明里有打不出来的字符，重写一遍就好。',
+
+  // 教练申请。开课堂的资格由服务端判（chess_guard.php 里的 chess_require_teacher），
+  // 所以 teacher_only 这一句要给出路，不只是"不行"。
+  teacher_only: '开课堂要先申请成为教练 —— 在旁边那一栏写几句你的经历。',
+  short_intro: '再写几句：至少 10 个字，说清楚带过谁、教了多久。',
+  long_intro: '介绍太长了，缩到 400 个字以内再交。',
+  bad_intro: '介绍里有打不出来的字符，重写一遍就好。',
+  already_teacher: '这份申请已经通过了，不用再交一遍。',
 };
 
 /**

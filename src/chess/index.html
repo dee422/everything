@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），课堂或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。" />
+    <meta name="description" content="给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），两个人用一台设备讲解，或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。" />
     <link rel="canonical" href="https://www.ichessgeek.com/chess/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="国际象棋" />
@@ -39,7 +39,7 @@
         "@type": ["WebApplication", "VideoGame"],
         "name": "国际象棋自学 —— 浏览器里练棋、复盘、导棋谱",
         "url": "https://www.ichessgeek.com/chess/",
-        "description": "给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），课堂或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。",
+        "description": "给自学者的一副国际象棋棋盘，浏览器里直接下，免费、无广告、不用装东西。和电脑练（三档难度），两个人用一台设备讲解，或报房间码和朋友在线下，走完一手一手回看，棋谱能复制或存成 PGN 文件。",
         "applicationCategory": "EducationalApplication",
         "operatingSystem": "任何系统",
         "browserRequirements": "需要 JavaScript",
@@ -80,7 +80,7 @@
     <noscript>
       <p class="noscript-note">
         这副棋盘完全在浏览器里运行，需要开启 JavaScript 才能用。
-        开启之后就能和电脑对弈，或者两个人用一台设备课堂对弈。
+        开启之后就能和电脑对弈，或者两个人用一台设备讲解对弈。
       </p>
     </noscript>
     <div id="app">
@@ -221,13 +221,13 @@
               <i data-lucide="cpu"></i>电脑
             </button>
             <button type="button" data-mode="local" aria-pressed="false">
-              <i data-lucide="users"></i>课堂
+              <i data-lucide="users"></i>讲解
             </button>
             <button type="button" data-mode="online" aria-pressed="false">
               <i data-lucide="globe"></i>在线
             </button>
             <button type="button" data-mode="class" aria-pressed="false">
-              <i data-lucide="school"></i>多人
+              <i data-lucide="school"></i>课堂
             </button>
           </div>
 
@@ -290,12 +290,21 @@
             </div>
           </section>
 
-          <section class="card class-card hidden" id="class-card" aria-label="多人课堂">
+          <section class="card class-card hidden" id="class-card" aria-label="课堂">
             <div class="online-section" id="class-idle">
-              <h2 class="card-title">多人课堂</h2>
+              <h2 class="card-title">课堂</h2>
               <p class="online-note">老师开课堂，学生用 4 位码进来旁听。学生举手，老师批准后能走一步。</p>
               <button class="btn btn-primary btn-block" id="class-create-btn" type="button">
                 <i data-lucide="plus"></i>开课堂
+              </button>
+              <!-- 开课堂的资格由服务端判（chess_class_create.php 里的
+                   chess_require_teacher）。下面这两行只负责把"为什么按不动"说明白，
+                   并把申请入口摆在旁边 —— 它们不是门，删掉也拦不住任何人。
+                   内容由 src/ui/coachApp.js 按服务端回的那一态填，没取到就整块收起。 -->
+              <p class="class-teacher-note" id="class-teacher-note" hidden></p>
+              <button class="btn btn-ghost btn-block" id="coach-apply-btn" type="button"
+                      aria-haspopup="dialog" aria-controls="coach-app-dialog">
+                <i data-lucide="badge-check"></i><span id="coach-apply-label">申请成为教练</span>
               </button>
               <div class="online-divider" aria-hidden="true"><span>或者用课堂码加入</span></div>
               <form class="join-row" id="class-join-form">
@@ -646,6 +655,38 @@
       <div class="dialog-buttons">
         <button class="btn btn-ghost" id="coach-pref-close-btn" type="button">关闭</button>
         <button class="btn btn-primary" id="coach-pref-save-btn" type="button">保存</button>
+      </div>
+    </dialog>
+
+    <!-- 教练申请。只有一段话，所以这张框是写死的，不像偏好面板那样由数据生成。
+         每一态的措辞在 src/game/coachApp.js，填框和提交在 src/ui/coachApp.js。
+         宽度和 coach-pref-dialog 共用一档样式，避免两种框并排看着不像一处。 -->
+    <dialog class="dialog coach-pref-dialog coach-app-dialog" id="coach-app-dialog"
+            aria-labelledby="coach-app-title">
+      <h2 class="dialog-title" id="coach-app-title">申请成为营地教练</h2>
+      <p class="dialog-sub" id="coach-app-hint"></p>
+      <p class="coach-app-when" id="coach-app-when" hidden></p>
+
+      <label class="field pref-group pref-note-block" id="coach-app-intro-group">
+        <span class="field-label pref-note-head">
+          <span>你的经历</span>
+          <span class="pref-counter" id="coach-app-count">0 / 400</span>
+        </span>
+        <!-- maxlength 比真上限（400 个字）留了四十多个字的余量：卡死在 400 的话，
+             人只会觉得"打不上去"，看不到自己超了。计数变红再说清一次更好懂。 -->
+        <textarea class="pref-note" id="coach-app-intro" rows="6" maxlength="450"
+                  placeholder="带过几个学生、教了多久、能带什么程度、一周大概能上几次"></textarea>
+      </label>
+
+      <p class="pref-privacy">
+        这段话只有管理员看得到，不会出现在棋盘上，也不会发给别的教练。
+      </p>
+
+      <p class="online-error" id="coach-app-error" role="alert" hidden></p>
+
+      <div class="dialog-buttons">
+        <button class="btn btn-ghost" id="coach-app-close-btn" type="button">关闭</button>
+        <button class="btn btn-primary" id="coach-app-save-btn" type="button">提交申请</button>
       </div>
     </dialog>
 

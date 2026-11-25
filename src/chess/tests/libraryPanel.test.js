@@ -220,7 +220,7 @@ describe('the list', () => {
     const lines = rows().map(textOf);
     expect(lines).toHaveLength(5);
     expect(lines[4]).toContain('白胜 · 电脑（中级）');
-    expect(lines[3]).toContain('白胜 · 课堂两人');
+    expect(lines[3]).toContain('白胜 · 讲解两人');
     expect(lines[2]).toContain('和棋 · 小李 对 阿明');
     expect(lines[1]).toContain('黑胜 · 电脑（中级）');
     expect(lines[0]).toContain('未分胜负');

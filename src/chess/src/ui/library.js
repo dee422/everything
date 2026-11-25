@@ -50,8 +50,9 @@ function opponentText(entry) {
     const label = LEVELS[entry.level]?.label;
     return label ? `电脑（${label}）` : '电脑';
   }
-  if (entry.mode === 'online') return `${entry.white} 对 ${entry.black}`;
-  return '课堂两人';
+  // 在线和课堂都没有"这台设备上的你"：那两格各有各的名字，存档时就记下了（见 pgnNames）。
+  if (entry.mode === 'online' || entry.mode === 'class') return `${entry.white} 对 ${entry.black}`;
+  return '讲解两人'; // 同屏那一盘：两个颜色共用一台设备，没有名字可说
 }
 
 function scoreLine(entry) {

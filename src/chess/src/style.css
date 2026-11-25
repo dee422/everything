@@ -952,6 +952,18 @@ svg.lucide {
   font-weight: 500;
 }
 
+/* 开课堂为什么按不动，这一行紧跟在那个按钮下面说。故意不再叠一层色块：
+   上面已经有一条 .online-note 是蓝底，再排一条就是两个方块，
+   读起来像两条并列的说明而不是一句注脚。 */
+.class-teacher-note {
+  margin: -4px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 /* The classroom panel borrows the online card's look but adds a roster of
    students with a small hand-state badge and an approve button. */
 .class-card {
@@ -2106,6 +2118,24 @@ select:focus-visible {
 
 .coach-pref-dialog .online-error {
   margin-top: 14px;
+}
+
+/* 申请框里那一行"哪天交的/哪天答的"：贴在 hint 下面，比正文低一档，
+   免得它和上面那句提醒抢同一层注意力。 */
+.coach-app-when {
+  margin: -8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* 已批准的人看的是自己那段话，不是表单。不上锁的只读框最容易被人当成
+   "打字打不进去"：底色换成面板色，让它一眼看着是给你读的。
+   这时候提交按钮已经整颗收掉了（见 src/ui/coachApp.js）。 */
+.pref-note[readonly] {
+  background: var(--surface);
+  color: var(--muted);
+  cursor: default;
 }
 
 .account-dialog {

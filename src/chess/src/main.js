@@ -40,6 +40,7 @@ import {
   ScanSearch,
   Target,
   Megaphone,
+  BadgeCheck,
 } from 'lucide';
 
 import { Chess, colorOf, START_FEN } from './engine/chess.js';
@@ -76,6 +77,7 @@ import { addEntry, pushToServer, deleteFromServer, loadLibrary } from './game/li
 import { clearGame, loadGame, saveGame } from './game/persistence.js';
 import { mountLibrary } from './ui/library.js';
 import { mountCoachPref } from './ui/coachPref.js';
+import { mountCoachApp } from './ui/coachApp.js';
 import { analyzeGame, CLASSIFY_ANNOT, CLASSIFY_LABEL, markFor } from './game/review.js';
 import { mountReviewPanel, mountReviewProgress } from './ui/reviewPanel.js';
 import { mountTacticsPanel } from './ui/tacticsPanel.js';
@@ -131,6 +133,7 @@ createIcons({
     ScanSearch,
     Target,
     Megaphone,
+    BadgeCheck,
   },
 });
 
@@ -260,8 +263,9 @@ const DISPLAY_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 // and the clocks, and this board asks it what it has missed every few seconds.
 const MODES = ['computer', 'local', 'online', 'class'];
 /** What each mode is called: the top bar note, the player cards, and the
- *  switch's confirm dialog. The buttons in index.html carry the short form. */
-const MODE_LABELS = { computer: '电脑对弈', local: '课堂对弈', online: '在线对弈', class: '多人课堂' };
+ *  switch's confirm dialog. The buttons in index.html carry the short form.
+ *  「讲解」是两个人守着一台设备（同屏讲棋），「课堂」是那个有 4 位码的多人课。 */
+const MODE_LABELS = { computer: '电脑对弈', local: '讲解对弈', online: '在线对弈', class: '课堂对弈' };
 /** Clock repaint rate. Tenths are shown when the time is low; this reads them. */
 const CLOCK_TICK_MS = 100;
 /** Shared by every board render that has nothing to highlight. */
@@ -2247,7 +2251,7 @@ function updateModeUi() {
   els.classIdle.classList.toggle('hidden', inClass && classLive);
   els.classActive.classList.toggle('hidden', !teaching);
   els.classStudentPanel.classList.toggle('hidden', !spectating);
-  els.classCreateBtn.disabled = classBusy;
+  els.classCreateBtn.disabled = classBusy || teacherBlocked();
   els.classJoinBtn.disabled = classBusy;
   els.classJoinInput.disabled = classBusy;
   if (teaching) els.classCodeDisplay.textContent = classSession.code || '';
@@ -2867,7 +2871,7 @@ function setMode(next) {
     // move is on the server. Stopping the refresh is what needs saying.
     askConfirm(
       {
-        title: '离开多人课堂？',
+        title: '离开课堂？',
         sub: '换了模式这块棋盘就不再跟着课堂刷新。用同一个课堂码还能回来。',
         confirmLabel: '离开',
       },
@@ -3531,7 +3535,12 @@ const CLASS_HAND_NOTE = {
   approved: '老师让你走一步 —— 现在可以动棋盘了。',
 };
 
+/** 那一行现在讲的是账号（要先登录/先验证），不是课堂出了什么事。身份一落定就
+ *  该收掉，否则人刚从那个对话框里登录成功，屏幕上还挂着"请先登录"。 */
+let classGateLine = false;
+
 function setClassError(message) {
+  classGateLine = false;
   els.classError.textContent = message;
   els.classError.hidden = !message;
 }
@@ -3578,7 +3587,10 @@ function enterClassIdle() {
   setClassError('');
   els.classJoinInput.value = '';
   els.classStudents.replaceChildren();
-  els.srStatus.textContent = '多人课堂。老师开课堂拿课堂码，学生输这四位数字进来旁听。';
+  els.srStatus.textContent = '课堂。老师开课堂拿课堂码，学生输这四位数字进来旁听。';
+  // 进这一栏顺带问一次教练资格：上一次问可能是几小时前、甚至换个账号之后，
+  // 而那一行话和【开课堂】能不能点都取自它。
+  coachApp?.refresh();
   renderAll();
 }
 
@@ -3887,12 +3899,20 @@ function handleClassProblem(reply) {
     const text = problemText(reply);
     els.srStatus.textContent = text;
     classProblem(text);
+    classGateLine = true;
     if (['teaching', 'spectating'].includes(classUiState)) {
       classUiState = 'idle';
       classSession.reset();
     }
     updateModeUi();
     account.open(code === 'sign_in_required' ? 'signin' : 'account');
+    return;
+  }
+
+  // 不够格的人按下了【开课堂】。界面只在没问到那一态时才让按钮亮着，所以这一条
+  // 是兜底：把那一行补上、直接把申请表打开，而不是让人对着一句 403 猜。
+  if (code === 'teacher_only') {
+    coachApp?.noteBlocked();
     return;
   }
 
@@ -4048,15 +4068,21 @@ mountLibrary({
  * it is the room: signing out stops watching it, since the referee will not
  * take another move from a seat that is no longer signed in.
  */
-/** 见 ui/coachPref.js。用 let 而不是 const：下面 mountAccount 会同步 paint 一次，
- * 那一次的 onIdentity 就要读这个变量，声明在它后面会撞暂时性死区。 */
+/** 见 ui/coachPref.js 与 ui/coachApp.js。用 let 而不是 const：下面 mountAccount 会同步
+ * paint 一次，那一次的 onIdentity 就要读这两个变量，声明在它后面会撞暂时性死区。 */
 let coachPref = null;
+let coachApp = null;
 
 const account = mountAccount({
   showToast,
   onSignOut: handleSignedOut,
-  // 身份一落定就问一次偏好：卡片上那行不能是上个账号留下的。
-  onIdentity: () => coachPref?.refresh(),
+  // 身份一落定就问一次偏好和一次教练资格：那两行不能是上个账号留下的。
+  onIdentity: () => {
+    // 登录/注册/退出的那一下就把"请先登录"那行收掉：它说的是刚才那个身份。
+    if (classGateLine) setClassError('');
+    coachPref?.refresh();
+    coachApp?.refresh();
+  },
 });
 
 /** Signed out with a room open: put the online tab back to where it starts. */
@@ -4080,6 +4106,27 @@ coachPref = mountCoachPref({
   player: () => account.player(),
   openAccount: (which) => account.open(which),
 });
+
+/**
+ * 「申请成为教练」：课堂面板上那一小块（见 ui/coachApp.js）。
+ * 它管的是【开课堂】点不点得动，所以状态一变要重画一次那一栏。
+ */
+coachApp = mountCoachApp({
+  showToast,
+  player: () => account.player(),
+  openAccount: (which) => account.open(which),
+  onStateChange: () => updateModeUi(),
+});
+
+/**
+ * 服务端算出来"现在还不能开课堂"。只有问到了、且那一态不是 approved 才算拦：
+ * 没登录、或者这一次根本没取回来（state 为 null）时按钮照旧能点，
+ * 由 chess_class_create.php 在那一次请求上说话。
+ */
+function teacherBlocked() {
+  const state = coachApp?.state() ?? null;
+  return state !== null && state !== 'approved';
+}
 
 /* ------------------------------------------------------------------ */
 /* Wiring                                                              */
