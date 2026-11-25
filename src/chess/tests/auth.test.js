@@ -103,6 +103,19 @@ describe('what comes back', () => {
     });
   });
 
+  it('gives the account calls a deadline and names it when it runs out', async () => {
+    const { fn, calls } = recordingFetch({ ok: true, signed_in: false });
+    await makeAccountApi({ fetchImpl: fn }).who();
+    expect(calls[0].init.signal).toBeInstanceOf(AbortSignal);
+
+    const aborted = new Error('aborted');
+    aborted.name = 'AbortError';
+    const api = makeAccountApi({ fetchImpl: vi.fn(async () => { throw aborted; }) });
+    const reply = await api.create('a@b.co', 'Knight2026!', '乔');
+    expect(reply.code).toBe('timeout');
+    expect(reply.message).toBe('服务器很久没有响应，请稍后再试。');
+  });
+
   it('says the server answered strangely when the body was not JSON', async () => {
     const api = makeAccountApi({
       fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new Error('html'); } })),

@@ -2369,6 +2369,19 @@ select:focus-visible {
   color: var(--muted);
 }
 
+/* 注册的回答不总是错误或成功：邮箱已经存在时既不发信也不是失败。这句用中性色
+   留在表单里，而不是靠"弹窗自己关掉 + 一条转瞬即逝的提示"让人猜发生了什么。 */
+.account-note {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
 .account-name {
   margin: 0;
   font-size: 17px;

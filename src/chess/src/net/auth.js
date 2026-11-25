@@ -36,6 +36,7 @@ const PROBLEM_TEXT = {
   content_type: '浏览器没能把这一步发出去，请再试一次。',
   bad_body: '浏览器没能把这一步发出去，请再试一次。',
   service: '服务器暂时没响应，过一分钟再试。',
+  timeout: '服务器很久没有响应，请稍后再试。',
   verify_failed: '验证暂时不可用，请稍后再试。',
   network: '连不上服务器。请检查网络后再试。',
   server: '出了点问题，请再试一次。',
@@ -88,8 +89,11 @@ export function problemText(reply) {
  * The HTTP status is deliberately not passed up: register answers with its own
  * `status` field ('created' or 'submitted'), and a number from here would
  * replace it.
+ *
+ * `timeoutMs` bounds how long a caller is willing to wait for an answer; 0
+ * means no bound (the room poll and the classroom poll use this same `call`).
  */
-export async function call(endpoint, { method = 'POST', body, fetchImpl } = {}) {
+export async function call(endpoint, { method = 'POST', body, fetchImpl, timeoutMs = 0 } = {}) {
   const fetchJson = fetchImpl ?? globalThis.fetch;
   const init = { method, credentials: 'same-origin' };
   if (body !== undefined) {
@@ -97,11 +101,21 @@ export async function call(endpoint, { method = 'POST', body, fetchImpl } = {}) 
     init.body = JSON.stringify(body);
   }
 
+  let timer = null;
+  if (timeoutMs > 0) {
+    const controller = new AbortController();
+    init.signal = controller.signal;
+    timer = setTimeout(() => controller.abort(), timeoutMs);
+  }
+
   let response;
   try {
     response = await fetchJson(API_BASE + endpoint, init);
-  } catch {
-    return { ok: false, code: 'network', message: problemText({ code: 'network' }) };
+  } catch (error) {
+    const code = error?.name === 'AbortError' ? 'timeout' : 'network';
+    return { ok: false, code, message: problemText({ code }) };
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
 
   let reply = null;
@@ -123,15 +137,22 @@ export async function call(endpoint, { method = 'POST', body, fetchImpl } = {}) 
 /**
  * The five calls the panel makes. `fetchImpl` is there for the tests, which
  * run without a DOM and have no fetch.
+ *
+ * These get a bound: 注册要等服务器同步发确认信，慢起来几十秒。到点就回一句
+ * "没等到"，面板才不会一直灰着按钮、让人以为窗口死了。
  */
+const ACCOUNT_TIMEOUT_MS = 30000;
+
 export function makeAccountApi({ fetchImpl } = {}) {
+  const ask = (endpoint, options = {}) =>
+    call(endpoint, { ...options, fetchImpl, timeoutMs: ACCOUNT_TIMEOUT_MS });
   return {
-    who: () => call('chess_me.php', { method: 'GET', fetchImpl }),
-    signIn: (email, password) => call('chess_login.php', { body: { email, password }, fetchImpl }),
+    who: () => ask('chess_me.php', { method: 'GET' }),
+    signIn: (email, password) => ask('chess_login.php', { body: { email, password } }),
     create: (email, password, nickname) =>
-      call('chess_register.php', { body: { email, password, nickname }, fetchImpl }),
-    signOut: () => call('chess_logout.php', { body: {}, fetchImpl }),
-    resend: () => call('chess_resend.php', { body: {}, fetchImpl }),
+      ask('chess_register.php', { body: { email, password, nickname } }),
+    signOut: () => ask('chess_logout.php', { body: {} }),
+    resend: () => ask('chess_resend.php', { body: {} }),
   };
 }
 

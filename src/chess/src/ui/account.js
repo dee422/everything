@@ -56,6 +56,7 @@ export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () 
     signupEmail: $('signup-email'),
     signupPassword: $('signup-password'),
     signupError: $('signup-error'),
+    signupNote: $('signup-note'),
     signupBtn: $('signup-btn'),
     name: $('account-name'),
     mail: $('account-mail'),
@@ -70,7 +71,16 @@ export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () 
 
   let player = null;
 
+  /** Bumped every time the dialog opens. A reply can outlive the panel it was
+      asked from, so an old reply may only close the opening it belongs to. */
+  let panelEpoch = 0;
+
   function showError(line, text) {
+    line.textContent = text;
+    line.hidden = !text;
+  }
+
+  function showNotice(line, text) {
     line.textContent = text;
     line.hidden = !text;
   }
@@ -116,6 +126,7 @@ export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () 
     showError(el.signinError, '');
     showError(el.signupError, '');
     showError(el.verifyError, '');
+    showNotice(el.signupNote, '');
   }
 
   const FIRST_INPUT = {
@@ -130,18 +141,32 @@ export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () 
    *   it is the panel's other reason for existing.
    */
   function openDialog(which) {
+    panelEpoch += 1;
     const pane = which ?? (player ? 'account' : 'signin');
     showPane(pane);
     el.dialog.showModal();
     FIRST_INPUT[pane]().focus();
   }
 
+  /** True while the form that sent a request is still the one on screen. */
+  function samePanel(epoch, pane) {
+    const paneEl = pane === 'signup' ? el.signupPane : el.signinPane;
+    return epoch === panelEpoch && el.dialog.open && !paneEl.classList.contains('hidden');
+  }
+
   /**
    * @param {Promise<object>} request the API call to make
    * @param {(reply: object) => void} onReply
+   * @param {{button: object, text: string}} [busy] what the submit button says
+   *   while the request is out. 注册要等发信，服务器慢的时候回复能迟到十几秒；
+   *   只把按钮变灰的话看着像卡死，人会继续往表单里打字，然后回复一到窗口就关了。
    */
-  async function run(request, onReply) {
+  async function run(request, onReply, busy = null) {
     setBusy(true);
+    if (busy) {
+      busy.button.dataset.idleLabel = busy.button.textContent;
+      busy.button.textContent = busy.text;
+    }
     // auth.js resolves with an error reply rather than throwing; this keeps
     // the panel honest even if that ever changes.
     const reply = await request.catch(() => ({
@@ -150,15 +175,32 @@ export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () 
       message: '连不上服务器。请检查网络后再试。',
     }));
     setBusy(false);
+    if (busy && busy.button.dataset.idleLabel !== undefined) {
+      busy.button.textContent = busy.button.dataset.idleLabel;
+      delete busy.button.dataset.idleLabel;
+    }
     onReply(reply);
   }
 
-  function acceptSignIn(reply) {
+  /**
+   * @param {object} reply the sign_in reply
+   * @param {number} epoch the opening that asked for it
+   * @param {'signin'|'signup'} pane the form that asked for it
+   */
+  function acceptSignIn(reply, epoch, pane) {
     player = reply.player ?? null;
     paint();
     el.signinPassword.value = '';
-    el.dialog.close();
     showToast(`已登录为 ${player?.nickname ?? '你'}。`);
+    // A reply can land after the player gave up waiting and moved on — they
+    // switched to the other form and are already typing there. The session is
+    // real, but the window must not disappear from under them; showing who
+    // they are now is the honest answer. Only the form that asked may close.
+    if (samePanel(epoch, pane)) {
+      el.dialog.close();
+    } else if (el.dialog.open) {
+      showPane('account');
+    }
     // Pull the server library into localStorage so the panel shows all games
     // across devices, not just the ones from this browser.
     syncFromServer();
@@ -184,21 +226,25 @@ export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () 
 
   el.signinPane.addEventListener('submit', (e) => {
     e.preventDefault();
+    const epoch = panelEpoch;
     run(
       api.signIn(el.signinEmail.value.trim(), el.signinPassword.value),
       (reply) => {
         if (reply.ok && reply.signed_in) {
-          acceptSignIn(reply);
+          acceptSignIn(reply, epoch, 'signin');
           return;
         }
         showError(el.signinError, reply.message);
         el.signinEmail.focus();
       },
+      { button: el.signinBtn, text: '正在登录…' },
     );
   });
 
   el.signupPane.addEventListener('submit', (e) => {
     e.preventDefault();
+    const epoch = panelEpoch;
+    showNotice(el.signupNote, '');
     run(
       api.create(
         el.signupEmail.value.trim(),
@@ -213,19 +259,33 @@ export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () 
         if (reply.status === 'submitted') {
           // Either the address was taken or it was not — the API says the same
           // thing either way so nobody can use this form to look up a class.
-          el.dialog.close();
-          showToast('好了。如果这个邮箱是新注册的，确认邮件已经在路上。');
+          // A closing window plus a one-line toast would leave the person who
+          // typed the address unsure whether anything happened; the note stays
+          // on the form until the next thing they do.
+          const note =
+            '如果这个邮箱是新邮箱，确认邮件已经在路上；已经注册过的邮箱不会重复发信。' +
+            '记得原密码就切到「登录」；忘了密码请写信到 admin@ichessgeek.com。';
+          if (samePanel(epoch, 'signup')) {
+            showNotice(el.signupNote, note);
+          } else {
+            showToast('好了。如果这个邮箱是新注册的，确认邮件已经在路上。');
+          }
           return;
         }
         player = reply.player ?? null;
         paint();
         el.signupPassword.value = '';
-        el.dialog.close();
         if (reply.mail_sent === false) {
           showError(el.verifyError, '确认邮件没能发出去。请按「重发邮件」。');
         }
         showToast('账号建好了。选一个时限就能开局。');
+        if (samePanel(epoch, 'signup')) {
+          el.dialog.close();
+        } else if (el.dialog.open) {
+          showPane('account');
+        }
       },
+      { button: el.signupBtn, text: '正在注册…' },
     );
   });
 
@@ -242,19 +302,23 @@ export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () 
 
   el.resendBtn.addEventListener('click', () => {
     showError(el.verifyError, '');
-    run(api.resend(), (reply) => {
-      if (!reply.ok) {
-        if (reply.code === 'sign_in_required') refresh();
-        showError(el.verifyError, reply.message);
-        return;
-      }
-      if (reply.verified) {
-        refresh();
-        showToast('这个邮箱之前已经确认过了。');
-        return;
-      }
-      showToast('确认邮件已发出 —— 垃圾箱也看一眼。');
-    });
+    run(
+      api.resend(),
+      (reply) => {
+        if (!reply.ok) {
+          if (reply.code === 'sign_in_required') refresh();
+          showError(el.verifyError, reply.message);
+          return;
+        }
+        if (reply.verified) {
+          refresh();
+          showToast('这个邮箱之前已经确认过了。');
+          return;
+        }
+        showToast('确认邮件已发出 —— 垃圾箱也看一眼。');
+      },
+      { button: el.resendBtn, text: '正在发送…' },
+    );
   });
 
   // The link in the email opens its own tab. Coming back here is the moment

@@ -245,22 +245,100 @@ describe('signing in', () => {
     expect(toasts).toEqual(['已登录为 Joe。']);
   });
 
-  it('locks the buttons while the request is out', async () => {
+  it('locks the buttons while the request is out, and says what it is doing', async () => {
     let release;
-    fetchImpl = vi.fn(
-      () =>
-        new Promise((resolve) => {
-          release = resolve;
-        }),
+    fetchImpl = vi.fn((url) =>
+      url.endsWith('chess_me.php')
+        ? Promise.resolve(jsonReply({ ok: true, signed_in: false }))
+        : new Promise((resolve) => {
+            release = resolve;
+          }),
+    );
+    mount();
+    await settled();
+    nodes.get('account-chip').emit('click');
+    nodes.get('signin-btn').textContent = '登录';
+    nodes.get('signin-pane').emit('submit', { preventDefault: vi.fn() });
+    expect(nodes.get('signin-btn').disabled).toBe(true);
+    expect(nodes.get('signin-btn').textContent).toBe('正在登录…');
+    release(jsonReply({ ok: true, signed_in: false }));
+    await settled();
+    expect(nodes.get('signin-btn').disabled).toBe(false);
+    expect(nodes.get('signin-btn').textContent).toBe('登录');
+  });
+
+  it('leaves a dialog reopened after the wait alone when the reply finally lands', async () => {
+    let release;
+    fetchImpl = vi.fn((url) =>
+      url.endsWith('chess_me.php')
+        ? Promise.resolve(jsonReply({ ok: true, signed_in: false }))
+        : new Promise((resolve) => {
+            release = resolve;
+          }),
+    );
+    mount();
+    await settled();
+    nodes.get('account-chip').emit('click');
+    tabs[1].emit('click');
+    nodes.get('signup-pane').emit('submit', { preventDefault: vi.fn() });
+
+    // The player gives up, closes the window and opens it again to try the
+    // password they already have. The answer to the first try must not close
+    // this new window from under them.
+    nodes.get('account-dialog').close();
+    nodes.get('account-chip').emit('click');
+    release(
+      jsonReply({
+        ok: true,
+        status: 'created',
+        signed_in: true,
+        verified: false,
+        mail_sent: true,
+        player: { nickname: '乔', email: 'joe@example.com', verified: false },
+      }),
+    );
+    await settled();
+
+    expect(nodes.get('account-dialog').open).toBe(true);
+    expect(nodes.get('account-chip-label').textContent).toBe('乔');
+    // The reopened window now says who they are instead of demanding a form.
+    expect(nodes.get('account-pane').classList.contains('hidden')).toBe(false);
+    expect(nodes.get('signin-pane').classList.contains('hidden')).toBe(true);
+  });
+
+  it('switches to the account instead of closing on someone who moved to the other form', async () => {
+    let release;
+    fetchImpl = vi.fn((url) =>
+      url.endsWith('chess_me.php')
+        ? Promise.resolve(jsonReply({ ok: true, signed_in: false }))
+        : new Promise((resolve) => {
+            release = resolve;
+          }),
     );
     mount();
     await settled();
     nodes.get('account-chip').emit('click');
     nodes.get('signin-pane').emit('submit', { preventDefault: vi.fn() });
-    expect(nodes.get('signin-btn').disabled).toBe(true);
-    release(jsonReply({ ok: true, signed_in: false }));
+
+    // The wait was long enough that the player decided to register instead and
+    // is now typing a password in that form. The late answer must not make the
+    // window vanish; it should show the identity it just established.
+    tabs[1].emit('click');
+    release(
+      jsonReply({
+        ok: true,
+        signed_in: true,
+        verified: true,
+        player: { nickname: 'Joe', email: 'joe@example.com', verified: true },
+      }),
+    );
     await settled();
-    expect(nodes.get('signin-btn').disabled).toBe(false);
+
+    expect(nodes.get('account-dialog').open).toBe(true);
+    expect(nodes.get('account-pane').classList.contains('hidden')).toBe(false);
+    expect(nodes.get('signup-pane').classList.contains('hidden')).toBe(true);
+    expect(nodes.get('account-name').textContent).toBe('Joe');
+    expect(toasts).toEqual(['已登录为 Joe。']);
   });
 });
 
@@ -320,7 +398,30 @@ describe('creating an account', () => {
     expect(nodes.get('verify-error').hidden).toBe(false);
   });
 
-  it('gives the same answer for an address that was already taken', async () => {
+  it('says it is registering while the confirmation mail goes out', async () => {
+    let release;
+    fetchImpl = vi.fn((url) =>
+      url.endsWith('chess_me.php')
+        ? Promise.resolve(jsonReply({ ok: true, signed_in: false }))
+        : new Promise((resolve) => {
+            release = resolve;
+          }),
+    );
+    mount();
+    await settled();
+    nodes.get('account-chip').emit('click');
+    tabs[1].emit('click');
+    nodes.get('signup-btn').textContent = '注册';
+    nodes.get('signup-pane').emit('submit', { preventDefault: vi.fn() });
+    // 注册要等服务器发信，回复常常迟到十几秒；按钮上得写着在做什么。
+    expect(nodes.get('signup-btn').textContent).toBe('正在注册…');
+    expect(nodes.get('signup-btn').disabled).toBe(true);
+    release(jsonReply({ ok: false, code: 'weak_password' }, 400));
+    await settled();
+    expect(nodes.get('signup-btn').textContent).toBe('注册');
+  });
+
+  it('keeps the form open and explains the two possibilities for a known address', async () => {
     fetchImpl = vi.fn(async (url) =>
       url.endsWith('chess_me.php')
         ? jsonReply({ ok: true, signed_in: false })
@@ -333,12 +434,19 @@ describe('creating an account', () => {
     nodes.get('signup-pane').emit('submit', { preventDefault: vi.fn() });
     await settled();
 
-    expect(toasts).toEqual([
-      '好了。如果这个邮箱是新注册的，确认邮件已经在路上。',
-    ]);
+    // The window no longer vanishes on this answer: it stays on the form and
+    // says what may or may not have happened, in neutral words.
+    expect(nodes.get('account-dialog').open).toBe(true);
+    expect(nodes.get('signup-note').hidden).toBe(false);
+    expect(nodes.get('signup-note').textContent).toContain('已经注册过的邮箱不会重复发信');
+    expect(toasts).toEqual([]);
     // Nobody is signed in, and nothing says whether the address was known.
     expect(nodes.get('account-chip-label').textContent).toBe('登录');
     expect(nodes.get('verify-card').classList.contains('hidden')).toBe(true);
+
+    // Moving to the other pane clears the explanation with the form.
+    tabs[0].emit('click');
+    expect(nodes.get('signup-note').hidden).toBe(true);
   });
 
   it('shows a weak password in the form, not in a toast', async () => {
