@@ -2564,10 +2564,16 @@ function promoteLine(ply, san, main) {
   }
   // 改走的这一手就是最新的一手：时间轴回到 live，走法区不再停在中间某一步。
   reviewIndex = null;
-  clockStack.length = Math.min(clockStack.length, next.length);
+  // 计时也按主线走：分叉点往后那些表是旧线留下的，扔掉，再给这一手记一次。
+  clockStack.length = ply;
+  afterPlyApplied({ color: game.turn() === 'w' ? 'b' : 'w' });
   announcedPlies = Math.min(announcedPlies, next.length);
   truncateReview(ply);
   showToast(`已把 ${san} 变成主线，原来的 ${main.length - ply} 手收进支线`);
+  // 这一手既然是本盘最新的棋，就得照走一步之后的规矩收尾：轮到电脑要让它接着想，
+  // 将死/逼和要照常收官。少了这一句，改走之后棋盘停在"轮到黑方"却谁也不动 —— 
+  // 电脑模式下那一步是电脑的权利，人不能替它走，于是整盘卡死。
+  afterMove();
 }
 
 function attemptMove(from, to, { animate }) {
