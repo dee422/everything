@@ -824,6 +824,23 @@ svg.lucide {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
+/* 讲解模式下两张对局卡是视角开关：点哪一方，棋盘就把哪一方翻到下面。
+   它说的是"看哪一方"，和 .active 那道"轮到谁走"的蓝边是两回事，所以
+   悬停只把边框压深一点，不借用强调色。 */
+.player-card.pickable {
+  cursor: pointer;
+}
+
+/* 轮到谁走的那道蓝边优先：悬停它时不要被压成灰的。 */
+.player-card.pickable:not(.active):hover {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--border));
+}
+
+.player-card.pickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .player-icon {
   display: inline-flex;
   flex: none;

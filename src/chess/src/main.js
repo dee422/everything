@@ -41,6 +41,7 @@ import {
   Target,
   Megaphone,
   BadgeCheck,
+  FlipVertical2,
 } from 'lucide';
 
 import { Chess, colorOf, START_FEN } from './engine/chess.js';
@@ -135,6 +136,7 @@ createIcons({
     Target,
     Megaphone,
     BadgeCheck,
+    FlipVertical2,
   },
 });
 
@@ -144,6 +146,7 @@ const els = {
   board: $('board'),
   boardFrame: document.querySelector('.board-frame'),
   annotationToolbar: $('annotation-toolbar'),
+  flipBoardBtn: $('flip-board-btn'),
   resultBanner: $('result-banner'),
   topbarNote: $('topbar-note'),
   modeButtons: document.querySelectorAll('.mode-switch [data-mode]'),
@@ -311,6 +314,7 @@ function resetBoard() {
 
 let mode = 'computer'; // 'computer' | 'local' | 'online'
 let myColor = 'w'; // side controlled at this device (computer & online modes)
+let viewColor = 'w'; // 讲解模式从哪一方看棋盘：那一方在下面（默认白方）
 let level = 'medium';
 let colorSetting = 'w';
 let timeSetting = DEFAULT_TIME_ID; // time control for the next game we start
@@ -397,7 +401,20 @@ function bottomColor() {
   // A classroom board belongs to the position, not to the person holding it:
   // both colours are played by whoever the server has authorised, so there is no
   // "my side" to turn the board around for.
-  return mode === 'local' || mode === 'class' ? 'w' : myColor;
+  if (mode === 'class') return 'w';
+  // 讲解时两个颜色都坐在这台设备前，棋盘朝谁翻开由讲解的人说了算：默认白方
+  // 在下，点右边那张对局卡或画笔旁的翻转按钮都能把视角换过去。
+  if (mode === 'local') return viewColor;
+  return myColor;
+}
+
+/** 讲解模式下换视角：把某一方放到棋盘下面，棋盘和对局卡一起翻。 */
+function setViewColor(color) {
+  if (mode !== 'local' || color === viewColor) return;
+  viewColor = color;
+  boardView.setOrientation(bottomColor());
+  renderAll();
+  els.srStatus.textContent = `已换成${colorName(color)}视角。`;
 }
 
 function gameFinished() {
@@ -1555,6 +1572,7 @@ els.annotationToolbar.addEventListener('click', (e) => {
   const toolBtn = e.target.closest('[data-tool]');
   const colorBtn = e.target.closest('[data-color]');
   const clearBtn = e.target.closest('#annotation-clear');
+  const flipBtn = e.target.closest('#flip-board-btn');
 
   if (toolBtn) {
     const tool = toolBtn.dataset.tool;
@@ -1591,8 +1609,25 @@ els.annotationToolbar.addEventListener('click', (e) => {
   } else if (clearBtn) {
     annotationOverlay.clearAll();
     clearBtn.blur();
+  } else if (flipBtn) {
+    setViewColor(otherColor(viewColor));
+    flipBtn.blur();
   }
 });
+
+// 讲解模式下两张对局卡就是视角开关：点（或按回车/空格）哪一方，棋盘就把哪一方
+// 翻到下面。其余模式里 renderPlayers 会把 role/tabindex 摘掉，这里也就什么也不做。
+for (const card of [els.cardTop, els.cardBottom]) {
+  card.addEventListener('click', () => {
+    if (card.dataset.color) setViewColor(card.dataset.color);
+  });
+  card.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (card.getAttribute('role') !== 'button' || !card.dataset.color) return;
+    e.preventDefault();
+    setViewColor(card.dataset.color);
+  });
+}
 
 // Import dialog
 const importDialog = $('import-dialog');
@@ -1810,6 +1845,34 @@ function renderPlayers() {
   }
   els.topIconCpu?.classList.toggle('hidden', !topIsCpu);
   els.topIconUser?.classList.toggle('hidden', topIsCpu);
+
+  // 讲解模式下两张对局卡可以点：点哪一方，棋盘就把哪一方翻到下面。它说的是
+  // "视角"，和 .active（轮到谁走）不是一回事，所以只标可点状态和当前那只。
+  const pickable = mode === 'local';
+  for (const [card, color] of [
+    [els.cardTop, top],
+    [els.cardBottom, bottom],
+  ]) {
+    card.dataset.color = color;
+    card.classList.toggle('pickable', pickable);
+    if (!pickable) {
+      card.removeAttribute('role');
+      card.removeAttribute('tabindex');
+      card.removeAttribute('aria-pressed');
+      card.removeAttribute('aria-label');
+      card.removeAttribute('title');
+      continue;
+    }
+    const viewing = color === bottom; // 在下面那张就是当前的视角
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-pressed', String(viewing));
+    card.setAttribute(
+      'aria-label',
+      viewing ? `${colorName(color)}：当前视角` : `换到${colorName(color)}视角`,
+    );
+    card.title = viewing ? '当前视角' : `点一下，换成${colorName(color)}视角`;
+  }
 
   els.cardTop.classList.toggle('thinking', mode === 'computer' && thinking);
   els.cardTop.classList.toggle('active', !finished && turn === top);
@@ -2378,6 +2441,8 @@ function updateModeUi() {
   // the server holds the position, and a board it never saw would be erased by
   // the next poll.
   els.annotationToolbar.classList.toggle('hidden', inClass && !teaching);
+  // 翻转棋盘只在讲解里有意义：电脑和在线模式的"你"固定在下面，翻过来名字就对不上了。
+  els.flipBoardBtn.classList.toggle('hidden', mode !== 'local');
   importBtn.classList.toggle('hidden', inClass);
 
   // The game-over dialog's other button starts a new game, which online means
@@ -2815,6 +2880,8 @@ function newGame() {
           : 'b'
         : colorSetting
       : 'w';
+  // 讲解每开一局都回到白方在下面的默认视角；换到黑方看是这一局里的事。
+  if (mode === 'local') viewColor = 'w';
   manualEnd = null;
   reviewIndex = null;
   resetBoard();

@@ -193,7 +193,7 @@
           <div class="board-frame">
             <div id="board" class="board" role="grid" aria-label="国际象棋棋盘"></div>
           </div>
-          <div class="annotation-toolbar" id="annotation-toolbar" role="toolbar" aria-label="画笔工具">
+          <div class="annotation-toolbar" id="annotation-toolbar" role="toolbar" aria-label="棋盘工具">
             <button type="button" data-tool="square" aria-pressed="false" title="格子高亮：点击格子添加/移除高亮">
               <i data-lucide="square"></i>
             </button>
@@ -202,6 +202,11 @@
             </button>
             <button type="button" data-tool="erase" aria-pressed="false" title="擦除：点击格子或箭头擦除">
               <i data-lucide="eraser"></i>
+            </button>
+            <!-- 翻转是看棋的事，不是画笔，但挨着画笔放最顺手；只在讲解模式里出现
+                 （见 updateModeUi），跟着工具那一组走，窄屏也不会多占一行。 -->
+            <button type="button" id="flip-board-btn" class="hidden" title="翻转棋盘" aria-label="翻转棋盘">
+              <i data-lucide="flip-vertical-2"></i>
             </button>
             <span class="separator"></span>
             <button type="button" class="color-swatch" data-color="yellow" aria-pressed="true" aria-label="黄色（当前选中）" title="黄色"></button>
