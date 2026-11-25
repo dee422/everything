@@ -1911,11 +1911,17 @@ function renderNotation(plies) {
   }
   const line = document.createElement('div');
   line.className = 'pgn-line';
+  /** 把分叉于这一手的支线接在后面。返回有没有真的写下括号。 */
   const appendBranches = (index) => {
+    let wrote = false;
     for (const node of byIndex.get(index) ?? []) {
       const el = notationBranch(node, sans.slice(0, index), view);
-      if (el) line.append(' ', el);
+      if (el) {
+        line.append(' ', el);
+        wrote = true;
+      }
     }
+    return wrote;
   };
   // 顶掉白方第一手的支线前面没有着法可挂，只能写在最前面。
   appendBranches(0);
@@ -1927,8 +1933,9 @@ function renderNotation(plies) {
     }
     // 支线打开着的时候，"现在这一手"在括号里，主线这边只是那几条岔路的来路。
     line.append(' ', pgnPly([], i + 1, san, !view && i + 1 === plies));
-    lastNumber = lbl.number;
-    appendBranches(i + 1);
+    // 括号里那条线自己把回合号走到别处去了，出括号要把号重写一遍，否则
+    // `1. f3 (1... e5 2. g4) d6` 读起来像白方走的 d6。导出的 PGN 同此规则。
+    lastNumber = appendBranches(i + 1) ? null : lbl.number;
   });
   els.pgnBody.replaceChildren(line);
 }
