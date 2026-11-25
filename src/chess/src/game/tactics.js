@@ -19,21 +19,17 @@
 
 import { Chess, START_FEN } from '../engine/chess.js';
 
-let nextId = 1;
-
 /**
- * 生成唯一题目 ID。
- * @returns {string}
+ * 题目身份跟着局面和解法走：同一道题反复导入，收藏和做题记录还能对上。
+ * 只取 FEN 前四段 —— 半回合、回合数不同不算另一道题。
  */
-export function generateId() {
-  return `t${nextId++}`;
-}
-
-/**
- * 重置 ID 计数器（测试用）。
- */
-export function resetIdCounter() {
-  nextId = 1;
+function problemId(fen, solution) {
+  const key = `${fen.split(' ').slice(0, 4).join(' ')}|${solution.join(' ')}`;
+  let hash = 5381;
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) + hash + key.charCodeAt(i)) >>> 0;
+  }
+  return `t${hash.toString(36)}`;
 }
 
 /**
@@ -90,7 +86,7 @@ export function validateProblem(problem) {
  */
 export function problemFromFen(fen, solution, options = {}) {
   const problem = {
-    id: options.id || generateId(),
+    id: options.id || problemId(fen, solution),
     fen,
     solution,
     ...options,
@@ -216,7 +212,15 @@ export function sanToUci(fen, sans) {
   const chess = new Chess(fen);
   const ucis = [];
   for (const san of sans) {
-    const move = chess.move(san);
+    let move = chess.move(san);
+    if (!move) {
+      // 教练手写解法时常把将杀写成 +、或者不写后缀；只差结尾 +/# 的按实际走法收下。
+      const base = san.replace(/[+#]$/, '');
+      for (const variant of [`${base}+`, `${base}#`]) {
+        move = chess.move(variant);
+        if (move) break;
+      }
+    }
     if (!move) {
       throw new Error(`Cannot parse SAN move: ${san} from FEN ${fen}`);
     }
@@ -265,7 +269,7 @@ export function importFromPgn(pgn, options = {}) {
         }
 
         const problem = {
-          id: generateId(),
+          id: problemId(fen, solution),
           fen,
           solution,
           difficulty: tags.Difficulty ? parseInt(tags.Difficulty, 10) : undefined,
@@ -405,4 +409,54 @@ export function importAuto(content) {
 
   // 无法识别
   throw new Error('Cannot auto-detect format. Content should be PGN or FEN.');
+}
+
+/**
+ * 教练手写的单题格式：一段一题，题与题之间空一行。
+ *
+ *   fen: r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4
+ *   solution: Qxf7#
+ *   difficulty: 900
+ *
+ * solution 写 SAN（Qxf7#）或 UCI（f3f7）都行；difficulty 可选，100–3000 之间。
+ * 写坏的一段跳过、不拖垮整批 —— 教练一次贴十道题，错一道不该十道都进不来。
+ *
+ * @param {string} text
+ * @returns {object[]} problems
+ */
+export function importFenSolutionFormat(text) {
+  const problems = [];
+  const blocks = String(text).split(/\n\s*\n/);
+
+  for (const block of blocks) {
+    let fen = null;
+    let solution = null;
+    let difficulty;
+
+    for (const rawLine of block.trim().split('\n')) {
+      const line = rawLine.trim();
+      if (line.startsWith('fen:')) {
+        fen = line.slice(4).trim();
+      } else if (line.startsWith('solution:')) {
+        solution = line.slice(9).trim().split(/[\s,]+/).filter(Boolean);
+      } else if (line.startsWith('difficulty:')) {
+        const parsed = parseInt(line.slice(11).trim(), 10);
+        if (!isNaN(parsed) && parsed >= 100 && parsed <= 3000) {
+          difficulty = parsed;
+        }
+      }
+    }
+
+    if (!fen || !solution || solution.length === 0) continue;
+
+    try {
+      const isUci = solution.every((move) => /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(move));
+      const options = difficulty === undefined ? {} : { difficulty };
+      problems.push(problemFromFen(fen, isUci ? solution : sanToUci(fen, solution), options));
+    } catch (e) {
+      console.warn(`Skipping invalid problem: ${e.message}`);
+    }
+  }
+
+  return problems;
 }

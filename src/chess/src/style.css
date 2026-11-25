@@ -313,6 +313,158 @@ svg.lucide {
   scrollbar-width: thin;
 }
 
+/* 题库打开后左边变成两栏：教程/题库 | 走法，整个页面跟着放宽。
+   四栏加起来放不下时（<1400px）退回上下叠，走法留在原位。 */
+@media (min-width: 1400px) {
+  .layout.tactics-open {
+    grid-template-columns: minmax(0, 600px) minmax(0, 1fr) 280px;
+    max-width: 1780px;
+  }
+
+  .layout.tactics-open .sidebar-left {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 16px;
+    overflow: hidden;
+  }
+
+  .layout.tactics-open .learn-panes {
+    min-height: 0;
+  }
+
+  .layout.tactics-open .tactics-card {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-gutter: stable;
+  }
+}
+
+.learn-panes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.learn-card {
+  flex: none;
+  padding: 12px 14px;
+}
+
+.learn-card .card-head {
+  margin-bottom: 8px;
+}
+
+.learn-tag {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.learn-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.learn-topic {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.learn-topic:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.tactics-card {
+  flex: none;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+/* 1024–1399px 还是三栏，放不下两列左侧栏：题库叠在走法上方，自己滚。 */
+@media (min-width: 1024px) and (max-width: 1399px) {
+  .tactics-card {
+    max-height: 60vh;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-gutter: stable;
+  }
+}
+
+/* 自学教程：正文放对话框里读，窄屏一屏放不下就框内滚。 */
+.learn-dialog {
+  width: min(94vw, 560px);
+  padding: 24px;
+  text-align: left;
+}
+
+.learn-dialog .dialog-title {
+  text-align: center;
+}
+
+.learn-step {
+  margin-bottom: 4px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.learn-body {
+  margin-top: 12px;
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.learn-body .learn-lead {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.learn-body h3 {
+  margin: 14px 0 6px;
+  font-size: 14.5px;
+}
+
+.learn-body h3:first-child {
+  margin-top: 0;
+}
+
+.learn-body ul {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.learn-body li {
+  margin: 4px 0;
+}
+
+.learn-body code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12.5px;
+}
+
+.learn-dialog .dialog-buttons {
+  margin-top: 18px;
+}
+
 .board-column {
   display: flex;
   flex-direction: column;
@@ -3209,6 +3361,13 @@ select:focus-visible {
   height: 16px;
 }
 
+/* 题库开着时按钮是蓝的，和「分析」用同一种说法。 */
+.tactics-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 /* 题库模式指示 */
 .tactics-mode-indicator {
   display: flex;
@@ -3490,7 +3649,304 @@ select:focus-visible {
 
 .tactics-empty {
   text-align: center;
-  padding: 20px;
+  padding: 14px 8px;
   color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ */
+/* 题库面板（单栏版：≈290px 宽，控件要能在这个宽度里排开）               */
+/* ------------------------------------------------------------------ */
+
+.tactics-panel {
+  gap: 12px;
+}
+
+.tactics-problem {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tactics-problem-header {
+  margin-bottom: 8px;
+}
+
+.tactics-counter {
   font-size: 13px;
+}
+
+.tactics-hint {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tactics-feedback {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tactics-nav-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.tactics-nav-grid .btn {
+  padding: 7px 8px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.tactics-nav-grid .tactics-random {
+  grid-column: 1 / -1;
+}
+
+.tactics-list-block {
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.tactics-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tactics-toolbar .tactics-search {
+  margin-bottom: 0;
+}
+
+.tactics-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.tactics-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.tactics-select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.tactics-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.tactics-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tactics-list-count {
+  font-weight: 400;
+}
+
+.tactics-problem-list {
+  max-height: 260px;
+}
+
+.tactics-problem-item {
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.tactics-problem-item .problem-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.tactics-problem-item .problem-tags,
+.tactics-problem-item .problem-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problem-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* 选中的题整行变蓝：教练一眼能看出现在做的是哪一道。 */
+.tactics-problem-item.selected {
+  background: var(--accent);
+}
+
+.tactics-problem-item.selected .problem-id,
+.tactics-problem-item.selected .problem-tags,
+.tactics-problem-item.selected .problem-difficulty,
+.tactics-problem-item.selected .problem-meta {
+  color: #fff;
+}
+
+.tactics-problem-item.selected .problem-tags {
+  opacity: 0.85;
+}
+
+.tactics-problem-item.selected .fav-btn {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.tactics-problem-item.selected .fav-btn.active {
+  color: #ffd76a;
+}
+
+.tactics-problem-item:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.tactics-more {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.tactics-more-summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tactics-more[open] .tactics-more-summary {
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.tactics-more-body {
+  min-width: 0;
+}
+
+.tactics-stats-line {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.tactics-store .tactics-sets-list {
+  margin: 8px 0;
+}
+
+.tactics-store .tactics-set-item {
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.tactics-store .tactics-set-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.tactics-store .tactics-save-set {
+  margin-top: 6px;
+}
+
+.tactics-store .tactics-set-name-input {
+  min-width: 0;
+}
+
+.tactics-import-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.tactics-import .tactics-textarea {
+  font-size: 11.5px;
+}
+
+.tactics-format {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.tactics-format summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.tactics-format-body {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.tactics-format-body p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.tactics-format-body ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.tactics-format-body li {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.tactics-format-body code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11.5px;
+}
+
+.tactics-format-sample {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.tactics-format-copy {
+  margin-top: 2px;
 }

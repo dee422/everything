@@ -71,6 +71,13 @@ export function makeRoomApi({ fetchImpl } = {}) {
         { method: 'GET', fetchImpl },
       ),
     resign: (code) => call('chess_room_resign.php', { body: { code }, fetchImpl }),
+    offerDraw: (code) => call('chess_room_draw_offer.php', { body: { code }, fetchImpl }),
+    // accept is a real boolean: the endpoint refuses "yes"/1 rather than guess,
+    // because an answer settles the game.
+    answerDraw: (code, accept) => call('chess_room_draw_answer.php', {
+      body: { code, accept: accept === true },
+      fetchImpl,
+    }),
     settle: (code) => call('chess_room_close.php', { body: { code }, fetchImpl }),
   };
 }
@@ -144,6 +151,14 @@ export class RoomGame {
 
   async resign() {
     return this._ask(() => this.api.resign(this.code));
+  }
+
+  async offerDraw() {
+    return this._ask(() => this.api.offerDraw(this.code));
+  }
+
+  async answerDraw(accept) {
+    return this._ask(() => this.api.answerDraw(this.code, accept));
   }
 
   /**

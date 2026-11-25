@@ -1,7 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
-  generateId,
-  resetIdCounter,
   validateProblem,
   problemFromFen,
   extractLinesFromPgn,
@@ -9,26 +7,8 @@ import {
   importFromPgn,
   importFromFile,
   importAuto,
+  importFenSolutionFormat,
 } from '../src/game/tactics.js';
-
-beforeEach(() => {
-  resetIdCounter();
-});
-
-describe('generateId', () => {
-  it('generates sequential IDs', () => {
-    expect(generateId()).toBe('t1');
-    expect(generateId()).toBe('t2');
-    expect(generateId()).toBe('t3');
-  });
-
-  it('resets to t1 after resetIdCounter', () => {
-    generateId();
-    generateId();
-    resetIdCounter();
-    expect(generateId()).toBe('t1');
-  });
-});
 
 describe('validateProblem', () => {
   it('accepts a valid problem', () => {
@@ -97,7 +77,18 @@ describe('problemFromFen', () => {
     const problem = problemFromFen(fen, ['e7e5']);
     expect(problem.fen).toBe(fen);
     expect(problem.solution).toEqual(['e7e5']);
-    expect(problem.id).toBe('t1');
+    expect(problem.id).toMatch(/^t[0-9a-z]+$/);
+  });
+
+  it('keeps the same id when the same puzzle is imported again', () => {
+    const fen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    const again = fen.replace('0 1', '3 2');
+    expect(problemFromFen(fen, ['e7e5']).id).toBe(problemFromFen(again, ['e7e5']).id);
+  });
+
+  it('gives different ids to different solutions', () => {
+    const fen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    expect(problemFromFen(fen, ['e7e5']).id).not.toBe(problemFromFen(fen, ['c7c5']).id);
   });
 
   it('uses custom id if provided', () => {
@@ -194,6 +185,47 @@ describe('sanToUci', () => {
   it('throws on illegal move', () => {
     const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     expect(() => sanToUci(fen, ['e5'])).toThrow();
+  });
+
+  it('accepts a mate written with + or no suffix', () => {
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4';
+    expect(sanToUci(fen, ['Qxf7#'])).toEqual(['f3f7']);
+    expect(sanToUci(fen, ['Qxf7+'])).toEqual(['f3f7']);
+    expect(sanToUci(fen, ['Qxf7'])).toEqual(['f3f7']);
+  });
+});
+
+describe('importFenSolutionFormat', () => {
+  const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4';
+
+  it('parses a fen/solution/difficulty block', () => {
+    const problems = importFenSolutionFormat(`fen: ${fen}\nsolution: Qxf7#\ndifficulty: 900`);
+    expect(problems).toHaveLength(1);
+    expect(problems[0].fen).toBe(fen);
+    expect(problems[0].solution).toEqual(['f3f7']);
+    expect(problems[0].difficulty).toBe(900);
+  });
+
+  it('parses several blocks and UCI solutions', () => {
+    const text = [`fen: ${fen}\nsolution: f3f7`, `fen: ${fen}\nsolution: Qxf7+`].join('\n\n');
+    const problems = importFenSolutionFormat(text);
+    expect(problems.map((p) => p.solution)).toEqual([['f3f7'], ['f3f7']]);
+  });
+
+  it('skips a broken block without dropping the rest', () => {
+    const text = [
+      `fen: ${fen}\nsolution: Qxf7#`,
+      `fen: ${fen}\nsolution: Qh8#`,
+      `fen: ${fen}\nsolution: e2e4`,
+    ].join('\n\n');
+    const problems = importFenSolutionFormat(text);
+    expect(problems).toHaveLength(1);
+    expect(problems[0].solution).toEqual(['f3f7']);
+  });
+
+  it('ignores a difficulty outside 100-3000', () => {
+    const problems = importFenSolutionFormat(`fen: ${fen}\nsolution: Qxf7#\ndifficulty: 50`);
+    expect(problems[0].difficulty).toBeUndefined();
   });
 });
 

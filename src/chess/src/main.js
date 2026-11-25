@@ -81,6 +81,7 @@ import { mountCoachApp } from './ui/coachApp.js';
 import { analyzeGame, CLASSIFY_ANNOT, CLASSIFY_LABEL, markFor } from './game/review.js';
 import { mountReviewPanel, mountReviewProgress } from './ui/reviewPanel.js';
 import { mountTacticsPanel } from './ui/tacticsPanel.js';
+import { mountLearnPanel } from './ui/learnPanel.js';
 import { track } from './analytics.js';
 import {
   appendToBranch,
@@ -184,8 +185,9 @@ const els = {
   pgnSheet: $('pgn-sheet'),
   pgnBody: $('pgn-body'),
   tacticsBtn: $('tactics-btn'),
-  tacticsPanelSection: $('tactics-panel-section'),
+  tacticsCard: $('tactics-card'),
   tacticsPanelContainer: $('tactics-panel-container'),
+  layout: document.querySelector('.layout'),
   srStatus: $('sr-status'),
   toast: $('toast'),
   controls: $('controls'),
@@ -200,8 +202,12 @@ const els = {
   buttonRow: $('button-row'),
   newGameBtn: $('new-game-btn'),
   undoBtn: $('undo-btn'),
+  drawBtn: $('draw-btn'),
   resignBtn: $('resign-btn'),
   leaveBtn: $('leave-btn'),
+  drawOfferDialog: $('draw-offer-dialog'),
+  drawAccept: $('draw-accept-btn'),
+  drawReject: $('draw-reject-btn'),
   controlsHint: $('controls-hint'),
   onlineCard: $('online-card'),
   onlineIdle: $('online-idle'),
@@ -371,6 +377,9 @@ let classYourHand = 'none'; // what this seat was told last, to notice a change
 let classRequestOut = false; // one classroom call at a time
 let classAnnotTimer = 0; // coalesces a teacher's strokes into one broadcast
 let manualEnd = null; // {kind,title,sub} for ends the engine can't see (a flag fall)
+/** The room's pending draw offer as last seen: {by, mine} or null. */
+let drawOfferPending = null;
+let drawRequestOut = false; // one offer/answer on its way at a time
 let confirmAction = null;
 let toastTimer = 0;
 let copyCodeTimer = 0;
@@ -1223,6 +1232,13 @@ function updateReviewButton() {
     : (game.history().length === 0 ? '先走几步棋，或导入一局棋谱，才能复盘' : '在线对弈中不能复盘');
 }
 
+/** 复盘报告开着时按钮变蓝 —— 面板里点了「收起」也回灰。 */
+function paintReviewToggle(on) {
+  els.reviewGameBtn.classList.toggle('btn-primary', on);
+  els.reviewGameBtn.classList.toggle('btn-ghost', !on);
+  els.reviewGameBtn.setAttribute('aria-pressed', String(on));
+}
+
 /** 开始复盘分析。 */
 async function startReview() {
   if (reviewAnalyzing || !canReview()) return;
@@ -1233,6 +1249,7 @@ async function startReview() {
   // 显示进度条
   els.reviewProgressSection.classList.remove('hidden');
   els.reviewResultPanel.classList.add('hidden');
+  paintReviewToggle(false);
   reviewProgress = mountReviewProgress(els.reviewProgressContainer);
 
   // Every position the game passed through, replayed the same way the review
@@ -1289,6 +1306,7 @@ async function startReview() {
 function showReviewResults() {
   els.reviewProgressSection.classList.add('hidden');
   els.reviewResultPanel.classList.remove('hidden');
+  paintReviewToggle(true);
   reviewProgress?.destroy();
   reviewProgress = null;
   // 主线换段之后要重装一遍：面板里那份走法列表、曲线和小结都是按旧的结论建的。
@@ -1318,6 +1336,7 @@ function clearReview() {
   els.reviewResultPanel.classList.add('hidden');
   els.reviewPanelContainer.innerHTML = '';
   els.reviewProgressContainer.innerHTML = '';
+  paintReviewToggle(false);
 }
 
 /** 更新复盘面板的当前局面高亮。 */
@@ -1331,47 +1350,75 @@ function updateReviewHighlight(ply) {
 
 let tacticsPanel = null;
 let tacticsMode = false;
+let tacticsBusy = false;
 
-/** 切换题库模式。 */
-function toggleTacticsMode() {
-  tacticsMode = !tacticsMode;
+/** 题库那一栏明说开没开：按钮变蓝、左列加宽成两栏，都看这一个开关。 */
+function paintTacticsColumn() {
   els.tacticsBtn.setAttribute('aria-pressed', String(tacticsMode));
   els.tacticsBtn.classList.toggle('active', tacticsMode);
+  els.tacticsCard.classList.toggle('hidden', !tacticsMode);
+  els.layout.classList.toggle('tactics-open', tacticsMode);
+  // 题面上的棋盘不归和棋/认输管：这两个按钮的显隐由 updateModeUi 统一算，
+  // 开关题库的这一下也得让它重算一遍，否则题面旁边还挂着对局的两个按钮。
+  updateModeUi();
+}
 
-  if (tacticsMode) {
-    // 关闭其他模式
-    if (analyzing) setAnalysis(false);
-    if (reviewPanel) clearReview();
-
-    // 显示题库面板
-    els.tacticsPanelSection.classList.remove('hidden');
-    if (!tacticsPanel) {
-      tacticsPanel = mountTacticsPanel(els.tacticsPanelContainer, {
-        onMove: (uci) => {
-          // 玩家走棋时检查是否是题目的正确答案
-          if (tacticsPanel) {
-            tacticsPanel.checkMove(uci);
-          }
-        },
-        setFen: (fen) => {
-          // 设置棋盘局面
-          loadBoard(fen);
-          const plies = renderAll();
-          updateTacticsHighlight(plies);
-        },
-      });
-    }
-  } else {
-    els.tacticsPanelSection.classList.add('hidden');
+/**
+ * 题库只对教练开放。管理员按管理员邮箱认，服务端算出的 can_teach 把这两种人
+ * 折成同一态（approved），所以这里只问一句。
+ *
+ * 没登录、或者这一趟没取回来（state 为 null）时不直接下结论：先补问一次，
+ * 问完仍不是教练就走申请入口 —— 那句提示本身就是给辅导员看的广告。
+ */
+async function openTactics() {
+  if (tacticsMode || tacticsBusy) return;
+  tacticsBusy = true;
+  let state = coachApp?.state() ?? null;
+  if (state === null && account.player()) {
+    await coachApp.refresh();
+    state = coachApp.state();
   }
+  tacticsBusy = false;
+
+  if (state !== 'approved') {
+    coachApp?.noteBlocked();
+    if (account.player()) showToast('题库只对教练开放 —— 申请成为教练后就能用。');
+    return;
+  }
+
+  tacticsMode = true;
+  // 电脑可能正想着上一局的应手；进题库就把它作废，别让它落到题面上。
+  if (thinking) {
+    aiToken++;
+    thinking = false;
+  }
+  // 关闭其他模式
+  if (analyzing) setAnalysis(false);
+  if (reviewPanel) clearReview();
+
+  paintTacticsColumn();
+  if (!tacticsPanel) {
+    tacticsPanel = mountTacticsPanel(els.tacticsPanelContainer, {
+      setFen: (fen) => {
+        loadBoard(fen);
+        const plies = renderAll();
+        updateTacticsHighlight(plies);
+      },
+      getFen: () => game.fen(),
+    });
+  }
+}
+
+/** 收起题库那一栏，面板本身留着：再打开时还是刚才那道题。 */
+function closeTactics() {
+  tacticsMode = false;
+  paintTacticsColumn();
 }
 
 /** 清除题库面板。 */
 function clearTactics() {
   tacticsMode = false;
-  els.tacticsBtn.setAttribute('aria-pressed', 'false');
-  els.tacticsBtn.classList.remove('active');
-  els.tacticsPanelSection.classList.add('hidden');
+  paintTacticsColumn();
   if (tacticsPanel) {
     tacticsPanel.destroy();
     tacticsPanel = null;
@@ -2306,8 +2353,13 @@ function updateModeUi() {
 
   els.newGameBtn.classList.toggle('hidden', online || inClass);
   els.undoBtn.classList.toggle('hidden', online || inClass);
-  els.resignBtn.classList.toggle('hidden', !(playing && !finished));
+  // 和棋/认输：在线要坐下之后才有对面，电脑和讲解一开局就能用。
+  // 题库里的棋盘是题面，不归这两个按钮管。
+  const canEndNow = !finished && !tacticsMode && (playing || (!online && !inClass));
+  els.drawBtn.classList.toggle('hidden', !canEndNow);
+  els.resignBtn.classList.toggle('hidden', !canEndNow);
   els.leaveBtn.classList.toggle('hidden', !playing);
+  paintDrawButton();
   els.buttonRow.classList.toggle('hidden', !showButtons);
   els.controlsHint.classList.toggle('hidden', !showHint);
   // The card is only worth its border when one of the three things inside it
@@ -2360,6 +2412,8 @@ function movableColorNow() {
   // to create variations (see #107). Allow both colors when reviewing in
   // analysis mode, since we're exploring variations, not playing a real game.
   if (reviewing() && !analyzing) return null;
+  // 题库里轮到谁走就谁走：题面可能执黑先行，教练也会用棋盘现摆局面。
+  if (tacticsMode) return gameFinished() && !analyzing ? null : game.turn();
   if (gameFinished() && !analyzing) return null;
   // In analysis mode while reviewing, allow moves for the color whose turn it
   // is at the historical position being viewed (not the current game's turn).
@@ -2389,7 +2443,7 @@ function movableColorNow() {
 
 function onSquarePress(square, event) {
   if (annotationOverlay.activeTool === 'arrow' || annotationOverlay.activeTool === 'erase') return;
-  if (mode === 'class' && ['teaching', 'spectating'].includes(classUiState) && !classSession.canMove) {
+  if (!tacticsMode && mode === 'class' && ['teaching', 'spectating'].includes(classUiState) && !classSession.canMove) {
     showToast(classSession.isStudent ? '课堂里先看着 —— 要走棋就举手。' : '课堂已经不能走了。');
     return;
   }
@@ -2422,7 +2476,7 @@ function onSquarePress(square, event) {
 // pointer press, minus the drag, and pressing the selected square deselects.
 function onSquareActivate(square) {
   if (annotationOverlay.activeTool === 'arrow' || annotationOverlay.activeTool === 'erase') return;
-  if (mode === 'class' && ['teaching', 'spectating'].includes(classUiState) && !classSession.canMove) {
+  if (!tacticsMode && mode === 'class' && ['teaching', 'spectating'].includes(classUiState) && !classSession.canMove) {
     showToast(classSession.isStudent ? '课堂里先看着 —— 要走棋就举手。' : '课堂已经不能走了。');
     return;
   }
@@ -2572,7 +2626,14 @@ function attemptMove(from, to, { animate }) {
       renderAll();
       return;
     }
-    if (mode === 'online') {
+    if (tacticsMode) {
+      // 题库优先：题面走子在本地判，不往在线/课堂的对局里写。
+      afterPlyApplied(played);
+      if (tacticsPanel) {
+        const uci = played.from + played.to + (played.promotion || '');
+        tacticsPanel.checkMove(uci);
+      }
+    } else if (mode === 'online') {
       // Show the move at once and ask the referee to write it down. `sentSan`
       // marks the ply as ours until the server's own record of it comes back,
       // and the clock is deliberately not moved here: the server keeps
@@ -2587,11 +2648,6 @@ function attemptMove(from, to, { animate }) {
       sendClassMove(played.san);
     } else {
       afterPlyApplied(played);
-      // 题库模式：检查走法是否正确
-      if (tacticsMode && tacticsPanel) {
-        const uci = played.from + played.to + (played.promotion || '');
-        tacticsPanel.checkMove(uci);
-      }
     }
     clearSelection();
     const proceed = () => {
@@ -2626,12 +2682,15 @@ function afterMove() {
   const status = game.status();
   if (status.over) {
     renderAll();
-    showEnd(describeEnd(status));
+    // 题库做完了由面板宣布；别弹出对局结束的对话框盖住题面。
+    if (!tacticsMode) showEnd(describeEnd(status));
     return;
   }
   // 开着分析就是在打谱思考，不是在下这盘棋：电脑不能替棋手应一手。引擎给的几条
   // 线摆在走法里，试哪条由棋手自己定。关掉分析会把欠这一手补上（见 setAnalysis）。
   if (analyzing) return;
+  // 题库要按解法一步不差地走完，两边都由做题的人来走，电脑不能插进来应棋。
+  if (tacticsMode) return;
   if (mode === 'computer' && game.turn() !== myColor) {
     computerTurn();
   }
@@ -2725,6 +2784,12 @@ function askConfirm({ title, sub, confirmLabel, danger = true }, onConfirm) {
 function closeDialogs() {
   if (els.gameoverDialog.open) els.gameoverDialog.close();
   if (els.confirmDialog.open) els.confirmDialog.close();
+  // A draw offer belongs to the game that is going away; the button follows
+  // the same reset so a new game does not start with it greyed out.
+  if (els.drawOfferDialog.open) els.drawOfferDialog.close();
+  drawOfferPending = null;
+  drawRequestOut = false;
+  paintDrawButton();
 }
 
 /* ------------------------------------------------------------------ */
@@ -3065,6 +3130,9 @@ function handleRoomSnapshot(snap, fresh) {
   // only moves forward, so the older picture is dropped rather than unplayable.
   if (snap.seq < appliedSeq) return;
 
+  // 提和不是走子，seq 不动：它只看快照，每次都得重摆一遍。
+  paintDrawOffer(snap);
+
   if (snap.status === 'waiting') {
     // A room with one seat. This is also the only thing that ever tells a host
     // a friend has arrived — a guest sitting down is not a move, so it makes no
@@ -3276,6 +3344,7 @@ function roomDesynced() {
 const ROOM_TERMINATION = {
   checkmate: 'normal',
   stalemate: 'normal',
+  agreement: 'normal',
   'resign-white': 'resigned',
   'resign-black': 'resigned',
   'timeout-white': 'time forfeit',
@@ -3315,6 +3384,7 @@ function roomEndText(snap) {
     return snap.winner === myColor ? '你把对方将死了。' : `${opponentLabel()}把你将死了。`;
   }
   if (snap.result === 'stalemate') return '逼和 —— 两边都没有合法走法。';
+  if (snap.result === 'agreement') return '双方同意和棋。';
   const side = ROOM_SIDE[snap.result];
   if (!side) return snap.result_text || '这局结束了。';
   const who = side === myColor ? '你' : opponentLabel();
@@ -3418,23 +3488,213 @@ function handleRoomProblem(reply) {
   }
 }
 
+/**
+ * 认输。在线交给裁判；电脑/讲解没有裁判，本机记下结果就能收摊。
+ * 讲解是两个人共用一台设备，没有"我"这个身份，认输按轮到谁走算，
+ * 确认框里把这一点说明白，免得赢的那一方莫名其妙。
+ */
 function requestResign() {
-  if (!(mode === 'online' && onlineUiState === 'playing' && !gameFinished())) return;
+  if (gameFinished() || tacticsMode) return;
+  if (mode === 'online') {
+    if (onlineUiState !== 'playing') return;
+    askConfirm(
+      {
+        title: '要认输吗？',
+        sub: `认输就把这一局送给了 ${opponentLabel()}。`,
+        confirmLabel: '认输',
+      },
+      () => {
+        // The referee may have ended the game while this dialog was open; a stale
+        // confirmation must not go and write over that verdict.
+        if (!(mode === 'online' && onlineUiState === 'playing' && !gameFinished())) return;
+        // Nothing is decided here. The reply comes back with the game over, and
+        // that snapshot is what puts the result on the board.
+        roomGame.resign();
+      },
+    );
+    return;
+  }
+  if (mode !== 'computer' && mode !== 'local') return;
+  const loser = mode === 'local' ? game.turn() : myColor;
   askConfirm(
     {
       title: '要认输吗？',
-      sub: `认输就把这一局送给了 ${opponentLabel()}。`,
+      sub: mode === 'local'
+        ? `轮到${colorName(loser)}走 —— 这一下按${colorName(loser)}认输算。`
+        : '认输就把这一局给了电脑。',
       confirmLabel: '认输',
     },
     () => {
-      // The referee may have ended the game while this dialog was open; a stale
-      // confirmation must not go and write over that verdict.
-      if (!(mode === 'online' && onlineUiState === 'playing' && !gameFinished())) return;
-      // Nothing is decided here. The reply comes back with the game over, and
-      // that snapshot is what puts the result on the board.
-      roomGame.resign();
+      if (mode === 'online' || tacticsMode || gameFinished()) return;
+      endGameManually(resignEnd());
     },
   );
+}
+
+/**
+ * 和棋。在线是真正的提和，等对面答复；电脑和讲解没有对面可问，
+ * 确认之后直接判和 —— 两种结束都写 result/termination，导出和棋谱库才说得清。
+ */
+function requestDraw() {
+  if (gameFinished() || tacticsMode) return;
+  if (mode === 'online') {
+    if (onlineUiState !== 'playing' || drawRequestOut) return;
+    if (drawOfferPending) {
+      // 已经有一条在等答复：自己的那条提醒一句，对方的那条把答复框打开。
+      if (drawOfferPending.mine) showToast('已经提和了，等对方答复。');
+      else if (!els.drawOfferDialog.open) els.drawOfferDialog.showModal();
+      return;
+    }
+    askConfirm(
+      {
+        title: '要提和吗？',
+        sub: '对方接受就和棋，拒绝就接着下。',
+        confirmLabel: '提和',
+        danger: false,
+      },
+      () => {
+        if (!(mode === 'online' && onlineUiState === 'playing' && !gameFinished())) return;
+        if (drawOfferPending || drawRequestOut) return;
+        offerRoomDraw();
+      },
+    );
+    return;
+  }
+  if (mode !== 'computer' && mode !== 'local') return;
+  askConfirm(
+    {
+      title: '要和棋吗？',
+      sub: mode === 'local'
+        ? '同屏讲解，这一下就当坐在两边的两个人都同意和棋。'
+        : '和电脑下棋，这一下直接判和。',
+      confirmLabel: '判和',
+      danger: false,
+    },
+    () => {
+      if (mode === 'online' || tacticsMode || gameFinished()) return;
+      endGameManually(drawEnd());
+    },
+  );
+}
+
+/** 本机认输的结束条：电脑那局输家永远是坐在这一侧的人。 */
+function resignEnd() {
+  const loser = mode === 'local' ? game.turn() : myColor;
+  const winner = otherColor(loser);
+  if (mode === 'local') {
+    return {
+      kind: 'win',
+      reason: 'resign',
+      result: resultFor(winner),
+      termination: 'resigned',
+      title: `${colorName(winner)}获胜`,
+      sub: `${colorName(loser)}认输。`,
+    };
+  }
+  return {
+    kind: 'loss',
+    reason: 'resign',
+    result: resultFor(winner),
+    termination: 'resigned',
+    title: '你输了',
+    sub: '你认输了。',
+  };
+}
+
+/** 本机同意和棋的结束条。 */
+function drawEnd() {
+  return {
+    kind: 'draw',
+    reason: 'agreement',
+    result: '1/2-1/2',
+    termination: 'normal',
+    title: '和棋',
+    sub: '双方同意和棋。',
+  };
+}
+
+/** 在线提和：回复里带着裁判记下的那条，界面下一帧就挂上"等答复"的态。 */
+async function offerRoomDraw() {
+  if (drawRequestOut) return;
+  drawRequestOut = true;
+  paintDrawButton();
+  const reply = await roomGame.offerDraw();
+  drawRequestOut = false;
+  paintDrawButton();
+  if (!reply?.ok) drawProblem(reply);
+}
+
+/** 在线答复：接受会让裁判结案，拒绝只删掉那条提和。 */
+async function answerRoomDraw(accept) {
+  if (drawRequestOut || !drawOfferPending || drawOfferPending.mine) return;
+  drawRequestOut = true;
+  els.drawAccept.disabled = true;
+  els.drawReject.disabled = true;
+  paintDrawButton();
+  const reply = await roomGame.answerDraw(accept);
+  drawRequestOut = false;
+  els.drawAccept.disabled = false;
+  els.drawReject.disabled = false;
+  paintDrawButton();
+  if (!reply?.ok) drawProblem(reply);
+}
+
+/**
+ * 提和/答复失败。账号和房间的问题交给 handleRoomProblem 去开对应的面板；
+ * 掉线只是这一下没送到，用一句话说清，别拿红色的错误条吓人。
+ */
+function drawProblem(reply) {
+  if (!reply) return;
+  if (['sign_in_required', 'verify_required', 'not_room_member', 'no_such_room'].includes(reply.code)) {
+    handleRoomProblem(reply);
+    return;
+  }
+  if (reply.code === 'network' || reply.code === 'service') {
+    showToast('网络不稳，这一下没送出去，再试一次。');
+    return;
+  }
+  showToast(problemText(reply));
+}
+
+/**
+ * 把裁判记着的提和摆到界面上。每次快照都调一次，而不是只在"收到提和"那个
+ * 瞬间做：轮询会重复送来同一条，按钮和对话框都该按快照说话，不该自己记状态。
+ */
+function paintDrawOffer(snap) {
+  const offer = snap.status === 'active' ? (snap.draw_offer ?? null) : null;
+  const before = drawOfferPending;
+  drawOfferPending = offer;
+  paintDrawButton();
+
+  if (!offer) {
+    if (els.drawOfferDialog.open) els.drawOfferDialog.close();
+    // 对面拒绝了我们的提和：局面还在，能这么说一句。终局、离开、换房
+    // 会有自己的话，不再补这一句。自己走一步也会把提和清掉，那是我们收回的，
+    // 不是对方拒绝的 —— sentSan 还挂着就说明这一帧是我们自己的刚落子。
+    if (before?.mine && sentSan === null && snap.status === 'active' && !onlineEnd) {
+      showToast('对方拒绝了和棋，接着下。');
+    }
+    return;
+  }
+  if (offer.mine) {
+    if (els.drawOfferDialog.open) els.drawOfferDialog.close();
+    return;
+  }
+  // 对方的提和：答复框只开一次，后面的轮询不再重开。
+  if (!els.drawOfferDialog.open && !drawRequestOut) {
+    els.drawOfferDialog.showModal();
+  }
+}
+
+/** 「和棋」按钮的灰/亮跟着裁判记的那条提和走。 */
+function paintDrawButton() {
+  const pending = mode === 'online' && onlineUiState === 'playing' ? drawOfferPending : null;
+  els.drawBtn.disabled = !!pending || drawRequestOut;
+  els.drawBtn.title = pending?.mine
+    ? '已经提和，等对方答复'
+    : pending
+      ? '对方提和了，先答复'
+      : '';
 }
 
 /**
@@ -4128,6 +4388,9 @@ function teacherBlocked() {
   return state !== null && state !== 'approved';
 }
 
+/** 国象自学教程：左边常驻的一张小卡，人人可看，不经过任何资格门。 */
+mountLearnPanel();
+
 /* ------------------------------------------------------------------ */
 /* Wiring                                                              */
 /* ------------------------------------------------------------------ */
@@ -4138,7 +4401,12 @@ for (const button of els.modeButtons) {
 
 els.newGameBtn.addEventListener('click', requestNewGame);
 els.undoBtn.addEventListener('click', undoTurn);
+els.drawBtn.addEventListener('click', requestDraw);
 els.resignBtn.addEventListener('click', requestResign);
+els.drawAccept.addEventListener('click', () => answerRoomDraw(true));
+els.drawReject.addEventListener('click', () => answerRoomDraw(false));
+// Esc 不能把提和框收掉：服务器那条还挂着，下一次轮询又会摆回来。
+els.drawOfferDialog.addEventListener('cancel', (e) => e.preventDefault());
 els.leaveBtn.addEventListener('click', requestLeave);
 els.gameoverNew.addEventListener('click', newGame); // hidden in online mode
 els.gameoverClose.addEventListener('click', () => els.gameoverDialog.close());
@@ -4198,11 +4466,15 @@ els.reviewGameBtn.addEventListener('click', () => {
   if (reviewData) {
     // 已有复盘数据，切换显示
     els.reviewResultPanel.classList.toggle('hidden');
+    paintReviewToggle(!els.reviewResultPanel.classList.contains('hidden'));
   } else {
     startReview();
   }
 });
-els.tacticsBtn.addEventListener('click', () => toggleTacticsMode());
+els.tacticsBtn.addEventListener('click', () => {
+  if (tacticsMode) closeTactics();
+  else openTactics();
+});
 
 // The move list is rebuilt on every render, so the click lands on the list.
 // 记录本里只有主线：支线在棋盘下方那份棋谱上点，见 els.pgnBody。

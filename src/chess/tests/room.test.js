@@ -55,7 +55,16 @@ function scriptedApi(replies = {}) {
     return typeof next === 'function' ? next(...args) : next;
   };
   const api = { calls };
-  for (const name of ['create', 'join', 'move', 'poll', 'resign', 'settle']) {
+  for (const name of [
+    'create',
+    'join',
+    'move',
+    'poll',
+    'resign',
+    'offerDraw',
+    'answerDraw',
+    'settle',
+  ]) {
     api[name] = ask(name);
   }
   return api;
@@ -174,6 +183,24 @@ describe('what each call asks the server for', () => {
     const { fn, calls } = recordingFetch({ ok: true, room: room() });
     await makeRoomApi({ fetchImpl: fn }).move('ABCDEF', 'Nf3');
     expect(JSON.parse(calls[0].init.body)).toEqual({ code: 'ABCDEF', san: 'Nf3' });
+  });
+
+  it('offers a draw with only the code and answers it with a real boolean', async () => {
+    const { fn, calls } = recordingFetch({ ok: true, room: room() });
+    const api = makeRoomApi({ fetchImpl: fn });
+    await api.offerDraw('ABCDEF');
+    await api.answerDraw('ABCDEF', true);
+    await api.answerDraw('ABCDEF', false);
+    expect(calls.map((c) => c.url)).toEqual([
+      `${API_BASE}chess_room_draw_offer.php`,
+      `${API_BASE}chess_room_draw_answer.php`,
+      `${API_BASE}chess_room_draw_answer.php`,
+    ]);
+    expect(JSON.parse(calls[0].init.body)).toEqual({ code: 'ABCDEF' });
+    // The endpoint reads accept as a JSON boolean and refuses strings rather
+    // than guess, because the answer settles the game.
+    expect(JSON.parse(calls[1].init.body)).toEqual({ code: 'ABCDEF', accept: true });
+    expect(JSON.parse(calls[2].init.body)).toEqual({ code: 'ABCDEF', accept: false });
   });
 });
 

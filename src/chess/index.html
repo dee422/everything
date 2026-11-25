@@ -113,6 +113,26 @@
 
       <main class="layout">
         <aside class="sidebar sidebar-left">
+          <!-- 左边这一栏永远先是自学教程（人人可看），题库打开时把教程和题库并成一列，
+               走法回到右边单独一列 —— 题目列表放在走法框左侧，教练一眼能挑题。 -->
+          <div class="learn-panes">
+            <section class="card learn-card" id="learn-card" aria-label="国象自学教程">
+              <div class="card-head">
+                <h2 class="card-title">国象自学教程</h2>
+                <span class="learn-tag">从零开始</span>
+              </div>
+              <div class="learn-topics">
+                <button type="button" class="learn-topic" data-learn-topic="setup">摆好棋盘</button>
+                <button type="button" class="learn-topic" data-learn-topic="pieces">棋子怎么走</button>
+                <button type="button" class="learn-topic" data-learn-topic="rules">特殊规则</button>
+                <button type="button" class="learn-topic" data-learn-topic="opening">开局三原则</button>
+                <button type="button" class="learn-topic" data-learn-topic="tactics">常见战术</button>
+              </div>
+            </section>
+            <section class="card tactics-card hidden" id="tactics-card" aria-label="题库练习">
+              <div id="tactics-panel-container"></div>
+            </section>
+          </div>
           <section class="card moves-card" id="moves-card">
             <div class="card-head">
               <h2 class="card-title">走法</h2>
@@ -165,9 +185,6 @@
               </div>
               <ol class="eval-lines" id="eval-lines"></ol>
               <p class="eval-note" id="eval-note"></p>
-            </section>
-            <section class="tactics-section hidden" id="tactics-panel-section" aria-label="题库练习">
-              <div id="tactics-panel-container"></div>
             </section>
           </section>
         </aside>
@@ -447,6 +464,9 @@
               <button class="btn btn-ghost" id="undo-btn" type="button" disabled>
                 <i data-lucide="undo-2"></i>悔棋
               </button>
+              <button class="btn btn-ghost hidden" id="draw-btn" type="button">
+                <i data-lucide="handshake"></i>和棋
+              </button>
               <button class="btn btn-ghost btn-danger hidden" id="resign-btn" type="button">
                 <i data-lucide="flag"></i>认输
               </button>
@@ -494,6 +514,17 @@
       <div class="dialog-buttons">
         <button class="btn btn-danger-solid" id="confirm-yes" type="button"></button>
         <button class="btn btn-ghost" id="confirm-no" type="button" autofocus>取消</button>
+      </div>
+    </dialog>
+
+    <!-- 对方的提和。Esc 关不掉（见 main.js 的 cancel 处理）：关掉等于既不接受
+         也不拒绝，而服务器那条提和还挂着，下一次轮询又把它摆回来。 -->
+    <dialog class="dialog" id="draw-offer-dialog" aria-labelledby="draw-offer-title" aria-describedby="draw-offer-sub">
+      <h2 class="dialog-title" id="draw-offer-title">对方提议和棋</h2>
+      <p class="dialog-sub" id="draw-offer-sub">接受就握手言和；拒绝就接着下。</p>
+      <div class="dialog-buttons">
+        <button class="btn btn-primary" id="draw-accept-btn" type="button">接受和棋</button>
+        <button class="btn btn-ghost" id="draw-reject-btn" type="button" autofocus>拒绝</button>
       </div>
     </dialog>
 
@@ -687,6 +718,19 @@
       <div class="dialog-buttons">
         <button class="btn btn-ghost" id="coach-app-close-btn" type="button">关闭</button>
         <button class="btn btn-primary" id="coach-app-save-btn" type="button">提交申请</button>
+      </div>
+    </dialog>
+
+    <!-- 自学教程的正文由 src/ui/learnPanel.js 按 game/learnContent.js 填进来：
+         教程对所有人开放，不经过教练资格那一道门。 -->
+    <dialog class="dialog learn-dialog" id="learn-dialog" aria-labelledby="learn-dialog-title">
+      <p class="learn-step" id="learn-dialog-step"></p>
+      <h2 class="dialog-title" id="learn-dialog-title"></h2>
+      <div class="learn-body" id="learn-dialog-body"></div>
+      <div class="dialog-buttons">
+        <button class="btn btn-ghost" id="learn-prev-btn" type="button">上一节</button>
+        <button class="btn btn-ghost" id="learn-close-btn" type="button">关闭</button>
+        <button class="btn btn-primary" id="learn-next-btn" type="button">下一节</button>
       </div>
     </dialog>
 
