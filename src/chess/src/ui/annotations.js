@@ -24,7 +24,9 @@ export class AnnotationOverlay {
     this.ctx = ctx;
     this.svg = this._createSvg();
     this.annotations = this._load(); // fen -> [{type, square, from, to, color}]
-    this.activeTool = 'square'; // 'square' | 'arrow' | 'erase'
+    // 默认不选任何画笔：棋盘上第一下应该是走棋，不是往格子上涂颜色。开着画笔时
+    // 点击格子会被这里吃掉，走子的那次 pointerdown 就白点了。
+    this.activeTool = null; // 'square' | 'arrow' | 'erase' | null
     this.activeColor = COLORS.yellow;
     this._arrowStart = null;
     this._tempArrow = null;
