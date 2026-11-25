@@ -28,13 +28,14 @@ const TITLES = {
  * @param {{
  *   showToast(text: string): void,
  *   onSignOut?(): void,  // so online play can let go of a room it cannot poll any more
+ *   onIdentity?(): void, // 每次"这个人是谁"变了就叫一声（登录/注册/退出/首屏问到）
  * }} deps
  * @returns {{open(which?: 'signin'|'signup'|'account'): void}} how the rest of
  *   the board opens the panel. It deliberately does not report who is signed
  *   in: online play asks the server instead, so a click that lands before the
  *   first reply arrives cannot be talked out of the game it is entitled to.
  */
-export function mountAccount({ showToast, onSignOut = () => {} }) {
+export function mountAccount({ showToast, onSignOut = () => {}, onIdentity = () => {} }) {
   const api = makeAccountApi();
 
   const el = {
@@ -94,6 +95,9 @@ export function mountAccount({ showToast, onSignOut = () => {} }) {
         : '还没确认 —— 请收一下邮件。'
       : '';
     el.stateLine.classList.toggle('confirmed', !!player?.verified);
+    // paint() 是这里唯一一处"身份落定"的地方：登录、注册、退出、首屏问到的
+    // 四条路都要经过它，所以别的面板挂在这一点上，而不是各自去猜哪儿会改。
+    onIdentity();
   }
 
   function showPane(which) {

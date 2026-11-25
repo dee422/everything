@@ -75,6 +75,7 @@ import { buildPgn, buildAnnotatedPgn, bundleFilename, bundlePgn, pgnFilename } f
 import { addEntry, pushToServer, deleteFromServer, loadLibrary } from './game/library.js';
 import { clearGame, loadGame, saveGame } from './game/persistence.js';
 import { mountLibrary } from './ui/library.js';
+import { mountCoachPref } from './ui/coachPref.js';
 import { analyzeGame, CLASSIFY_ANNOT, CLASSIFY_LABEL, markFor } from './game/review.js';
 import { mountReviewPanel, mountReviewProgress } from './ui/reviewPanel.js';
 import { mountTacticsPanel } from './ui/tacticsPanel.js';
@@ -4047,7 +4048,16 @@ mountLibrary({
  * it is the room: signing out stops watching it, since the referee will not
  * take another move from a seat that is no longer signed in.
  */
-const account = mountAccount({ showToast, onSignOut: handleSignedOut });
+/** 见 ui/coachPref.js。用 let 而不是 const：下面 mountAccount 会同步 paint 一次，
+ * 那一次的 onIdentity 就要读这个变量，声明在它后面会撞暂时性死区。 */
+let coachPref = null;
+
+const account = mountAccount({
+  showToast,
+  onSignOut: handleSignedOut,
+  // 身份一落定就问一次偏好：卡片上那行不能是上个账号留下的。
+  onIdentity: () => coachPref?.refresh(),
+});
 
 /** Signed out with a room open: put the online tab back to where it starts. */
 function handleSignedOut() {
@@ -4060,6 +4070,16 @@ function handleSignedOut() {
   showToast(text);
   els.srStatus.textContent = text;
 }
+
+/**
+ * 「我想找什么样的教练」：附加位上的那张表（见 ui/coachPref.js）。
+ * 它不改对弈的任何一条规则，只要两样东西 —— 现在是谁、以及怎么把人送去登录。
+ */
+coachPref = mountCoachPref({
+  showToast,
+  player: () => account.player(),
+  openAccount: (which) => account.open(which),
+});
 
 /* ------------------------------------------------------------------ */
 /* Wiring                                                              */

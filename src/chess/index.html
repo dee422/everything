@@ -357,6 +357,14 @@
               想找人带一带？这里会列出营地认证的国际象棋教练，按你的水平和目标匹配。
             </p>
             <p class="coach-coming-soon">教练入驻中，敬请期待。</p>
+
+            <!-- 先把"你想要什么样的"收下来：教练入驻那天才有东西可匹配，
+                 而这件事现在就能做，不必等老师。 -->
+            <button class="btn btn-ghost btn-block coach-pref-btn" id="coach-pref-btn" type="button"
+                    aria-haspopup="dialog" aria-controls="coach-pref-dialog">
+              <i data-lucide="target"></i><span class="coach-pref-btn-label">我想找什么样的教练</span>
+            </button>
+            <p class="coach-pref-state hidden" id="coach-pref-state"></p>
           </section>
 
           <section class="card player-card" id="card-top">
@@ -571,6 +579,73 @@
       <div class="dialog-buttons">
         <button class="btn btn-ghost" id="library-clear-btn" type="button">清空</button>
         <button class="btn btn-ghost" id="library-close-btn" type="button">关闭</button>
+      </div>
+    </dialog>
+
+    <!-- 教练偏好。六组选项的控件、legend 的措辞和那句"选几项"的提示，全由
+         src/ui/coachPref.js 按 src/game/coachPref.js 那张表生成 —— 选项与上限只在
+         一处定义，加一档水平或改个数量上限都不用动这里。这里只留容器。 -->
+    <dialog class="dialog coach-pref-dialog" id="coach-pref-dialog" aria-labelledby="coach-pref-title">
+      <h2 class="dialog-title" id="coach-pref-title">我想找什么样的教练</h2>
+      <p class="dialog-sub">
+        想法会变，这张表随时能改。填不填都能下棋 —— 它只影响教练入驻之后给你推荐谁。
+      </p>
+
+      <fieldset class="pref-group" id="pref-level-group">
+        <legend class="pref-legend" id="pref-level-legend"></legend>
+        <div class="pref-choices" id="pref-level-choices"></div>
+      </fieldset>
+
+      <fieldset class="pref-group" id="pref-goals-group">
+        <legend class="pref-legend" id="pref-goals-legend"></legend>
+        <div class="pref-choices" id="pref-goals-choices"></div>
+      </fieldset>
+
+      <fieldset class="pref-group" id="pref-formats-group">
+        <legend class="pref-legend" id="pref-formats-legend"></legend>
+        <div class="pref-choices" id="pref-formats-choices"></div>
+      </fieldset>
+
+      <fieldset class="pref-group" id="pref-slots-group">
+        <legend class="pref-legend" id="pref-slots-legend"></legend>
+        <div class="pref-choices" id="pref-slots-choices"></div>
+      </fieldset>
+
+      <fieldset class="pref-group" id="pref-timezone-group">
+        <legend class="pref-legend" id="pref-timezone-legend"></legend>
+        <div class="pref-choices" id="pref-timezone-choices"></div>
+      </fieldset>
+
+      <fieldset class="pref-group" id="pref-language-group">
+        <legend class="pref-legend" id="pref-language-legend"></legend>
+        <div class="pref-choices" id="pref-language-choices"></div>
+      </fieldset>
+
+      <label class="field pref-group pref-note-block" id="pref-note-group">
+        <span class="field-label pref-note-head">
+          <span>补充说明</span>
+          <span class="pref-counter" id="pref-note-count">0 / 240</span>
+        </span>
+        <!-- maxlength 故意放宽到 300（真上限是 240 个字）：卡死在 240 的话，人只
+             会觉得"打字打不上去"，看不到自己超了。计数变红再说清一次更好懂。 -->
+        <textarea class="pref-note" id="pref-note" rows="3" maxlength="300"
+                  placeholder="想解决什么问题、孩子多大、上过什么课……都可以写"></textarea>
+      </label>
+
+      <label class="pref-contact" id="pref-contact-group">
+        <input type="checkbox" id="pref-contact" />
+        <span>可以发邮件联系我（发到账号那个邮箱）。不勾也行，只是教练没法主动找你。</span>
+      </label>
+
+      <p class="pref-privacy">
+        这张表里没有邮箱、没有密码；能不能联系到你，只看上面那个勾。
+      </p>
+
+      <p class="online-error" id="coach-pref-error" role="alert" hidden></p>
+
+      <div class="dialog-buttons">
+        <button class="btn btn-ghost" id="coach-pref-close-btn" type="button">关闭</button>
+        <button class="btn btn-primary" id="coach-pref-save-btn" type="button">保存</button>
       </div>
     </dialog>
 

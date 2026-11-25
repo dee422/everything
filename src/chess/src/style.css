@@ -1889,6 +1889,225 @@ select:focus-visible {
   color: #b6a26a;
 }
 
+/* 卡片里那颗按钮：金色底上不能再叠一层白表面，否则看着像别人家的控件。 */
+.coach-pref-btn {
+  border-color: #d9ae46;
+  background: rgba(255, 253, 245, 0.82);
+  color: #6f4a05;
+  font-size: 13px;
+}
+
+.coach-pref-btn:hover:not(:disabled) {
+  background: #fffdf6;
+  border-color: #c8992f;
+}
+
+:root[data-theme='dark'] .coach-pref-btn {
+  border-color: #8a6d2c;
+  background: rgba(24, 20, 10, 0.55);
+  color: #e8c86b;
+}
+
+:root[data-theme='dark'] .coach-pref-btn:hover:not(:disabled) {
+  background: rgba(45, 37, 18, 0.9);
+  border-color: #b6a26a;
+}
+
+/* 填过之后卡片上这一行替人记住"我说过想要什么"，不必再打开面板确认。 */
+.coach-pref-state {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6b5313;
+}
+
+:root[data-theme='dark'] .coach-pref-state {
+  color: #cbb37a;
+}
+
+/* 偏好面板本体。窄屏优先：选项是 chips 横排自动换行，一组最多四五个也不会撑破。 */
+.coach-pref-dialog {
+  width: min(94vw, 470px);
+  padding: 22px;
+  text-align: left;
+}
+
+.coach-pref-dialog .dialog-title {
+  text-align: center;
+}
+
+.coach-pref-dialog .dialog-sub {
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+.pref-group {
+  margin: 15px 0 0;
+  padding: 0;
+  border: 0;
+  /* fieldset 默认的 min-inline-size 是 min-content，窄屏配长 legend 会把对话框顶宽 */
+  min-inline-size: 0;
+}
+
+.pref-legend {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pref-hint {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.8;
+}
+
+.pref-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+}
+
+.pref-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pref-choice input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* :has() 只是给"已选"加一层底色；原生 radio/checkbox 一直可见，
+   不支持 :has() 的浏览器照样看得出选了哪个。 */
+.pref-choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  font-weight: 600;
+}
+
+.pref-choice:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pref-group select {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* 说明那一组不是 chips 而是一个 textarea，红要落在框上。 */
+.pref-note-block.invalid .pref-note {
+  border-color: var(--danger);
+}
+
+.pref-note-block.invalid .pref-note-head {
+  color: var(--danger);
+}
+
+.pref-group.invalid .pref-choices {
+  border-color: var(--danger);
+  background: var(--danger-tint);
+}
+
+.pref-group.invalid .pref-legend {
+  color: var(--danger);
+}
+
+.pref-note-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pref-counter {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+
+.pref-counter.over {
+  color: var(--danger);
+}
+
+.pref-note {
+  width: 100%;
+  min-height: 72px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.pref-note:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pref-contact {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 15px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pref-contact input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.pref-privacy {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.coach-pref-dialog .online-error {
+  margin-top: 14px;
+}
+
 .account-dialog {
   text-align: left;
 }
