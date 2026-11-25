@@ -39,6 +39,7 @@ import {
   Hand,
   ScanSearch,
   Target,
+  Megaphone,
 } from 'lucide';
 
 import { Chess, colorOf, START_FEN } from './engine/chess.js';
@@ -89,7 +90,6 @@ import {
   getNode,
   isViewingBranch,
   navigateActiveBranch,
-  promoteMainLine,
   pruneBranches,
   setActiveBranch,
 } from './game/variations.js';
@@ -129,6 +129,7 @@ createIcons({
     Hand,
     ScanSearch,
     Target,
+    Megaphone,
   },
 });
 
@@ -814,10 +815,9 @@ function mainSans() {
 /**
  * 棋盘显示的是哪几手，和支线树必须对得上。
  *
- * 主线可以变短（撤销）也可以整段换掉（在复盘位改走一手，见 attemptMove），所以
- * 每画一次都先剪掉够不着的支线，再把"正在看支线"这件事绑回主线：reviewIndex 就
- * 停在这条支线分叉出去的那一手之前 —— 走法区因此一直高亮着分叉点，看得清是从哪
- * 里走岔的。
+ * 主线会变短（撤销），支线树因此要跟着剪 —— 每画一次都先剪掉够不着的支线，再把
+ * "正在看支线"这件事绑回主线：reviewIndex 就停在这条支线分叉出去的那一手之前 ——
+ * 走法区因此一直高亮着分叉点，看得清是从哪里走岔的。
  */
 function clampReview() {
   const total = game.history().length;
@@ -1038,6 +1038,10 @@ function setAnalysis(on) {
   }
   // 棋盘下面那份棋谱两边都要重画：开分析才点得动支线，关分析要看得见它变成只能看。
   renderAll();
+  // 回到下棋：分析期间欠着电脑的那一手补上（见 afterMove 里让路的那句）。
+  if (!on && mode === 'computer' && !thinking && !gameFinished() && game.turn() !== myColor) {
+    computerTurn();
+  }
 }
 
 function closeEngine() {
@@ -1293,22 +1297,6 @@ function showReviewResults() {
     viewerColor: mode === 'local' ? null : myColor,
   });
   reviewPanel.setCurrentPly(viewPlies());
-}
-
-/**
- * 主线在 `keepPlies` 处换了一段，复盘的结论只能留到那一手之前。
- *
- * 后面那些分数是给原来那条线打的：哪一手亏了多少、局面从哪里到哪里，全都对着
- * 已经不在棋谱上的走法。贴在新线上等于把别人的答案抄过来 —— 宁可少评几手。
- */
-function truncateReview(keepPlies) {
-  if (!reviewData || reviewData.results.length <= keepPlies) return;
-  reviewData = {
-    results: reviewData.results.slice(0, keepPlies),
-    sans: reviewData.sans.slice(0, keepPlies),
-    fens: reviewData.fens.slice(0, keepPlies + 1),
-  };
-  showReviewResults();
 }
 
 /**
@@ -2479,10 +2467,12 @@ function onDrop(from, to, moved) {
 /**
  * 把复盘位上走出的这一手写进棋谱。
  *
+ * 分析里走出来的棋是"试"，不是"下"：主线那份记录一律不动，改的手另起一条支线，
+ * 棋盘跟着支线走（常规国象软件都是这个规矩 —— 复盘要能试，但不能把下过的棋改掉）。
+ *
  * - 这一手本来就在看着的那条线上：往前走一步就完事，别另起一支（重复点同一手会
  *   多出支线就是这么来的）。
- * - 主线中途改走别的手：这一手升级成主线，原来的后面那一截降级成支线。走法区是
- *   记录本 —— 你走的是哪条线，它就记哪条线。
+ * - 主线中途改走别的手：挂在那一手的位置上成为支线，旧的那一截还是主线。
  * - 支线中途改走别的手：挂在它下面，旧的那一截留着。那才是"当时还可以这样"。
  * - 支线末尾：续着这条支线往下走。
  */
@@ -2500,16 +2490,15 @@ function recordBranchMove(san) {
       enterBranch(known, 1);
       return;
     }
-    if (mode === 'online' || mode === 'class') {
-      // 主线是裁判记的那一份，本地无权改写：这一手只作为支线留下来。
-      const path = branchAt([], ply, san);
-      if (path) {
-        enterBranch(path, 1);
-        showToast(`已记下支线（${san}）—— 在线对弈里主线得听裁判的`);
-      }
-      return;
+    const path = branchAt([], ply, san);
+    if (path) {
+      enterBranch(path, 1);
+      showToast(
+        mode === 'online' || mode === 'class'
+          ? `已记下支线（${san}）—— 主线是裁判记的那一份`
+          : `已记下支线（${san}）—— 主线照旧`,
+      );
     }
-    promoteLine(ply, san, main);
     return;
   }
 
@@ -2547,38 +2536,10 @@ function recordBranchMove(san) {
   if (path) setActiveBranch(path, 1);
 }
 
-/**
- * 主线换到 `ply` 处的另一手：新走法成为主线，旧的那一截降级成支线。
- *
- * 棋盘是主线唯一的真相（`game`），所以这里要按新的 SAN 列表把它重摆一遍。走不通
- * 就停在能走的地方 —— 重放用的是同一批 SAN，理论上不该断，断了也不能留一个说不清
- * 是哪盘的棋盘在屏上。
- */
-function promoteLine(ply, san, main) {
-  const next = promoteMainLine(main, ply, san);
-  if (!next) return;
-  setActiveBranch(null);
-  game.load(gameOrigin);
-  for (const move of next) {
-    if (!game.move(move)) break;
-  }
-  // 改走的这一手就是最新的一手：时间轴回到 live，走法区不再停在中间某一步。
-  reviewIndex = null;
-  // 计时也按主线走：分叉点往后那些表是旧线留下的，扔掉，再给这一手记一次。
-  clockStack.length = ply;
-  afterPlyApplied({ color: game.turn() === 'w' ? 'b' : 'w' });
-  announcedPlies = Math.min(announcedPlies, next.length);
-  truncateReview(ply);
-  showToast(`已把 ${san} 变成主线，原来的 ${main.length - ply} 手收进支线`);
-  // 这一手既然是本盘最新的棋，就得照走一步之后的规矩收尾：轮到电脑要让它接着想，
-  // 将死/逼和要照常收官。少了这一句，改走之后棋盘停在"轮到黑方"却谁也不动 —— 
-  // 电脑模式下那一步是电脑的权利，人不能替它走，于是整盘卡死。
-  afterMove();
-}
-
 function attemptMove(from, to, { animate }) {
-  // 分析模式里回头看旧局面时，这一手是在改棋谱而不是在下棋（见 #107）。要赶在拿
-  // live game 校验之前处理：显示的那个局面和棋盘现在的 turn 可能已经不是一回事。
+  // 分析模式里回头看旧局面时，这一手是记进棋谱的变化而不是在下这盘棋（见 #107）。
+  // 要赶在拿 live game 校验之前处理：显示的那个局面和棋盘现在的 turn 可能已经不
+  // 是一回事。
   if (analyzing && reviewing()) {
     const played = shownPosition(viewPlies()).move({ from, to });
     if (!played) {
@@ -2663,6 +2624,9 @@ function afterMove() {
     showEnd(describeEnd(status));
     return;
   }
+  // 开着分析就是在打谱思考，不是在下这盘棋：电脑不能替棋手应一手。引擎给的几条
+  // 线摆在走法里，试哪条由棋手自己定。关掉分析会把欠这一手补上（见 setAnalysis）。
+  if (analyzing) return;
   if (mode === 'computer' && game.turn() !== myColor) {
     computerTurn();
   }

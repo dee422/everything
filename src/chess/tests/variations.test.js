@@ -10,56 +10,19 @@ import {
   getNode,
   isViewingBranch,
   navigateActiveBranch,
-  promoteMainLine,
   pruneBranches,
   setActiveBranch,
 } from '../src/game/variations.js';
 
 /**
  * 支线树本身（不含棋盘）：主线就是调用方手里那份 SAN 列表，这里只记「顶掉了父线的
- * 第几手」。#107 要的是能在任意位置改走一手并且跳回去看，所以每个函数的落点都得钉住。
+ * 第几手」。#107 要的是能在任意位置试一手并且跳回去看，所以每个函数的落点都得钉住。
+ * 主线由调用方（`game`）拿着，这座树永远不改它 —— 试出来的都记成支线。
  */
 const MAIN = ['e4', 'e5', 'Nf3', 'Nc6'];
 
 beforeEach(() => {
   clearBranches();
-});
-
-describe('主线改走即升级（旧尾巴降级为支线）', () => {
-  it('把旧主线的那一截收成分叉点处的支线', () => {
-    const next = promoteMainLine(MAIN, 1, 'c5');
-    expect(next).toEqual(['e4', 'c5']);
-    expect(getBranches()).toEqual([
-      { path: [0], branchIndex: 1, moves: ['e5', 'Nf3', 'Nc6'], children: [] },
-    ]);
-  });
-
-  it('同一手不算改走，旧主线原样留着', () => {
-    expect(promoteMainLine(MAIN, 1, 'c5')).not.toBeNull();
-    expect(promoteMainLine(['e4', 'c5'], 1, 'c5')).toBeNull();
-  });
-
-  it('分叉点之后原有的支线跟着旧尾巴一起住进去，下标改按新支线数', () => {
-    branchAt([], 3, 'Be7'); // 主线第 4 手（下标 3）上的岔路
-    promoteMainLine(MAIN, 1, 'c5');
-    const [demoted] = getBranches();
-    expect(demoted.moves).toEqual(['e5', 'Nf3', 'Nc6']);
-    expect(demoted.children).toEqual([
-      { path: [0, 0], branchIndex: 2, moves: ['Be7'], children: [] },
-    ]);
-  });
-
-  it('分叉点还在改动之前的支线留在主线上，位置不动', () => {
-    branchAt([], 1, 'd5');
-    promoteMainLine(MAIN, 2, 'd4');
-    expect(getBranches().map((node) => node.branchIndex)).toEqual([1, 2]);
-  });
-
-  it('换不到没有着法的位置上去', () => {
-    expect(promoteMainLine(MAIN, 4, 'd5')).toBeNull();
-    expect(promoteMainLine(MAIN, -1, 'd5')).toBeNull();
-    expect(promoteMainLine(MAIN, 1, null)).toBeNull();
-  });
 });
 
 describe('挂在哪儿：同级还是往下套一层', () => {

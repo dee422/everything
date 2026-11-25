@@ -139,34 +139,6 @@ export function appendToBranch(path, san) {
 }
 
 /**
- * 主线在 `ply` 处改走 `san`：这一手升级成主线，原来的后半段降级成支线。
- *
- * @param {string[]} mainSans 主线现在的 SAN
- * @returns {string[] | null} 新的主线（到 `san` 为止），null 表示这个位置换不了
- */
-export function promoteMainLine(mainSans, ply, san) {
-  if (!Array.isArray(mainSans) || !san) return null;
-  if (!Number.isInteger(ply) || ply < 0 || ply >= mainSans.length) return null;
-  if (mainSans[ply] === san) return null;
-
-  // 分叉点之后的旧支线是从旧主线数下标的，跟旧尾巴一起住进那条支线之后，
-  // 分叉点要减去 ply 才是相对新支线的。
-  const carried = [];
-  const kept = [];
-  for (const node of mainChildren) {
-    if (node.branchIndex > ply) {
-      node.branchIndex -= ply;
-      carried.push(node);
-    } else {
-      kept.push(node);
-    }
-  }
-  const demoted = { branchIndex: ply, moves: mainSans.slice(ply), children: carried };
-  mainChildren = [...kept, demoted];
-  return [...mainSans.slice(0, ply), san];
-}
-
-/**
  * 主线变短（撤销、或换主线）之后，够不着的支线整条扔掉。
  *
  * 分叉点正好落在主线末尾的要留着：那是"主线走到这里之后另走过的一条线"，撤销把
