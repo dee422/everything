@@ -59,6 +59,19 @@ const PROBLEM_TEXT = {
   too_many_rooms: '你刚刚开好几局了。请一小时后再试。',
   too_many_joins: '短时间内试的房间码太多，等几分钟再试。',
 
+  bad_class_code: '课堂码是四位数字，中间不要空格。',
+  no_such_class: '没有这个课堂码。请核对一下再试。',
+  class_closed: '这个课堂已经结束了。',
+  not_class_member: '你不在这个课堂里。',
+  not_teacher: '这一步只有老师能做。',
+  teacher_no_hand: '老师不用举手，可以直接走棋或给学生批准。',
+  no_permission: '现在轮不到你走，先等老师批准。',
+  already_approved: '老师已经让你走这一步了，不用再举手。',
+  bad_action: '没有这个举手动作，请刷新后再试。',
+  bad_move: '这一步看着不像一步棋，请重新走。',
+  bad_player_id: '请选择一位课堂里的学生。',
+  stale: '课堂已经往前走了，请等棋盘同步后再试。',
+
   // 教练偏好。后端回这些 code 时还会带一个 field（哪一组不对），面板按它亮红框。
   bad_pref: '有一项没选上，或者选得比上限还多。',
   long_note: '补充说明太长了，缩一缩再存。',

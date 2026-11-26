@@ -241,6 +241,9 @@ export class AnnotationOverlay {
 
   setTool(tool) {
     this.activeTool = tool; // 'square' | 'arrow' | 'erase' | null
+    this._tempArrow?.remove();
+    this._arrowStart = null;
+    this._tempArrow = null;
   }
 
   setColor(color) {

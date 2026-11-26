@@ -2956,8 +2956,16 @@ function undoPly() {
   if (before) clock.restore(before);
 }
 
+function clearAnnotationTool() {
+  annotationOverlay.setTool(null);
+  els.annotationToolbar.querySelectorAll('[data-tool]').forEach((btn) => {
+    btn.setAttribute('aria-pressed', 'false');
+  });
+}
+
 /** Drop every game, room and timer ahead of a mode change. */
 function teardownForModeChange() {
+  clearAnnotationTool();
   stopRoomPolling();
   stopClassPolling();
   roomGame.reset();
@@ -3906,6 +3914,7 @@ async function classCall(what) {
 
 /** Empty the classroom panel and put a clean board back in its place. */
 function enterClassIdle() {
+  clearAnnotationTool();
   stopClassPolling();
   clearTimeout(classAnnotTimer);
   classSession.reset();
@@ -4101,9 +4110,12 @@ function classDrifted(cls) {
 function rebuildClass(cls) {
   resetBoard();
   for (const event of classSession.events) {
-    if (event.type !== 'move') continue;
-    const san = event.data?.san;
-    if (!san || !game.move(san)) break;
+    if (event.type === 'move') {
+      const san = event.data?.san;
+      if (!san || !game.move(san)) break;
+    } else if (event.type === 'annotation') {
+      annotationOverlay.applyRemote(game.fen(), event.data?.annotations);
+    }
   }
   // A list this engine will not replay — or one that has not all arrived yet —
   // leaves the position as the shorter lie, since that is what everyone is
@@ -4179,7 +4191,7 @@ function updateClassRoster() {
 /** Grant or take back one student's one move. */
 async function approveStudent(playerId, approve) {
   if (classUiState !== 'teaching' || !classSession.code) return;
-  await classCall(() => classSession.approve(playerId, approve));
+  await classCall(() => classSession.approveMove(playerId, approve));
 }
 
 /** Raise or lower this student's hand. */
