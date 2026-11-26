@@ -71,6 +71,19 @@ const PROBLEM_TEXT = {
   long_intro: '介绍太长了，缩到 400 个字以内再交。',
   bad_intro: '介绍里有打不出来的字符，重写一遍就好。',
   already_teacher: '这份申请已经通过了，不用再交一遍。',
+
+  // 教练资料与照片。同样按 code 出句子，后端还带 field（哪一组不对），表单按它亮红框。
+  bad_profile: '有一项填得不对：称号、等级分、教龄，或者选项里的某一项。',
+  long_tagline: '一句话简介太长了，缩一缩再存。',
+  bad_tagline: '简介里有打不出来的字符，重写一遍就好。',
+  long_honors: '荣誉那一栏太长了，缩一缩再存。',
+  bad_honors: '荣誉里有打不出来的字符，重写一遍就好。',
+  no_such_coach: '这位教练还没进名录。',
+  bad_image: '那不是浏览器能显示的图片。换一张 JPG、PNG 或 WebP 试试。',
+  big_image: '这张图太大：两兆以内、每边四千像素以内。',
+  too_many_photos: '照片最多三张，先删一张再传。',
+  too_many_certificates: '证书图片最多六张，先删一张再传。',
+  too_many_uploads: '刚刚传的图片太多了，等一小时再试。',
 };
 
 /**
@@ -116,6 +129,49 @@ export async function call(endpoint, { method = 'POST', body, fetchImpl, timeout
     return { ok: false, code, message: problemText({ code }) };
   } finally {
     if (timer !== null) clearTimeout(timer);
+  }
+
+  let reply = null;
+  try {
+    reply = await response.json();
+  } catch {
+    reply = null;
+  }
+  if (!reply || typeof reply !== 'object') {
+    const offline = response.status >= 500 ? 'service' : 'server';
+    return { ok: false, code: offline, message: problemText({ code: offline }) };
+  }
+  if (reply.ok === false || !response.ok) {
+    return { ...reply, ok: false, message: problemText(reply) };
+  }
+  return reply;
+}
+
+/**
+ * 一次图片上传。和 call() 同一套错误形状，唯一的区别是 body 用 FormData：
+ * multipart 的 boundary 必须由浏览器自己算（手填 Content-Type 会把它顶掉，
+ * 服务端就解析不出文件），所以这里刻意不设任何 header。
+ *
+ * 上传比 JSON 慢得多（一张一兆的图在手机上要几秒），超时给到 60 秒；
+ * 到点回一句 timeout，界面上那个"上传中…"必须能自己收回来。
+ */
+export async function upload(endpoint, form, { fetchImpl, timeoutMs = 60000 } = {}) {
+  const fetchForm = fetchImpl ?? globalThis.fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetchForm(API_BASE + endpoint, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const code = error?.name === 'AbortError' ? 'timeout' : 'network';
+    return { ok: false, code, message: problemText({ code }) };
+  } finally {
+    clearTimeout(timer);
   }
 
   let reply = null;

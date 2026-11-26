@@ -1990,10 +1990,7 @@ select:focus-visible {
 
 /* 推荐教练是附加位，不是功能：整块换成金色调，和功能卡的白/蓝表面一眼分开。 */
 .coach-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px;
+  padding: 0;
   border: 1px solid #e3bb57;
   background: linear-gradient(135deg, #fff8e6 0%, #ffeec6 55%, #ffe5ab 100%);
   box-shadow:
@@ -2014,23 +2011,70 @@ select:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 48px;
+  padding: 12px 16px;
+  border-radius: inherit;
+  cursor: pointer;
+  list-style: none;
 }
 
-.coach-card .card-title {
+.coach-head::-webkit-details-marker {
+  display: none;
+}
+
+.coach-head::marker {
+  content: '';
+}
+
+.coach-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.coach-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 0;
   color: #8a5c07;
+  font-size: 16px;
+  font-weight: 700;
 }
 
-:root[data-theme='dark'] .coach-card .card-title {
+:root[data-theme='dark'] .coach-title {
   color: #e8c86b;
+}
+
+.coach-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .coach-icon {
   width: 14px;
   height: 14px;
+}
+
+.coach-chevron {
+  width: 16px;
+  height: 16px;
+  color: #8a5c07;
+  transition: transform 0.18s ease;
+}
+
+:root[data-theme='dark'] .coach-chevron {
+  color: #e8c86b;
+}
+
+.coach-card[open] > .coach-head .coach-chevron {
+  transform: rotate(180deg);
+}
+
+.coach-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 16px;
 }
 
 .coach-tag {
@@ -2104,6 +2148,196 @@ select:focus-visible {
 
 :root[data-theme='dark'] .coach-pref-state {
   color: #cbb37a;
+}
+
+/* 名录：整张卡片是右栏里那块金色推广位，最窄只有 ~280px，所以一列竖排、
+   每张卡自己决定要不要换行。窄屏先写，宽屏只把头像放大一档。 */
+.coach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 一张卡 = 一个按钮（点哪儿都进主页）。卡片里不再嵌别的控件，
+   否则右栏那么窄，两个可点区域挨着一定按错。 */
+.coach-item {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(138, 92, 7, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 253, 245, 0.72);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+:root[data-theme='dark'] .coach-item {
+  border-color: rgba(182, 162, 106, 0.28);
+  background: rgba(24, 20, 10, 0.5);
+}
+
+.coach-item:hover {
+  border-color: rgba(138, 92, 7, 0.45);
+  background: #fffdf6;
+}
+
+:root[data-theme='dark'] .coach-item:hover {
+  border-color: rgba(214, 182, 76, 0.5);
+  background: rgba(45, 37, 18, 0.8);
+}
+
+.coach-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.coach-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 头像：有图裁成方，没图用昵称第一个字。尺寸固定，别让一个字把圈顶扁。 */
+.coach-avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid rgba(138, 92, 7, 0.28);
+  border-radius: 999px;
+  background: #f7e7bf;
+  font-size: 15px;
+  font-weight: 700;
+  color: #6f4a05;
+}
+
+:root[data-theme='dark'] .coach-avatar {
+  border-color: rgba(182, 162, 106, 0.4);
+  background: #2f2716;
+  color: #e8c86b;
+}
+
+.coach-avatar img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.coach-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.coach-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.coach-self {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* 称号 · 等级分 · 教龄。这一列最宽也只有 170 来像素，两行封顶，多的去主页看。 */
+.coach-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #4a3a12;
+  overflow-wrap: anywhere;
+}
+
+:root[data-theme='dark'] .coach-line {
+  color: #dcd9d0;
+}
+
+/* 简介单独一行、只给一行：它比徽章长得多，挤在一起时先被截断的总是等级分。
+   读不完的那半句本来就该去主页看。 */
+.coach-tagline {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* 和你的偏好对了哪几样 —— 一行。这行说的是"为什么排在这儿"，比简介要紧，
+   但一屏要放四五张卡，所以和简介一样夹住，细则在主页。 */
+.coach-why {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: #7a5a10;
+  overflow-wrap: anywhere;
+}
+
+:root[data-theme='dark'] .coach-why {
+  color: #cbb37a;
+}
+
+/* 没填偏好时这行说的是教练自己标的方向，不是"和你 matched"，压低一档。 */
+.coach-why.quiet {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* 整张卡本来就是一个按钮，这句只是给个"点下去还有东西"的提示，
+   所以让它自己占一行靠右 —— 挂在正文旁边会把文字栏挤到 120 像素。 */
+.coach-go {
+  align-self: flex-end;
+  font-size: 11px;
+  font-weight: 700;
+  color: #8a5c07;
+}
+
+:root[data-theme='dark'] .coach-go {
+  color: #e8c86b;
+}
+
+/* 取名录的那句状态（正在取 / 没取回来）。和"敬请期待"分开说，见 ui/coachDirectory.js。 */
+.coach-state {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 /* 偏好面板本体。窄屏优先：选项是 chips 横排自动换行，一组最多四五个也不会撑破。 */
@@ -2287,6 +2521,314 @@ select:focus-visible {
 
 .coach-pref-dialog .online-error {
   margin-top: 14px;
+}
+
+/* 教练主页。外壳沿用偏好面板那一档宽度与内距：两种框并排看着像一处。
+   内容全部由 src/ui/coachDirectory.js 填，这里只管排。 */
+.coach-home-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.coach-home-id {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 名字挨着头像，不能跟面板标题一样居中（三条 .coach-pref-dialog 的选择器压得住）。 */
+.coach-home-dialog .coach-home-id .dialog-title {
+  text-align: left;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.coach-avatar.big {
+  width: 52px;
+  height: 52px;
+  font-size: 20px;
+}
+
+.coach-home-badges {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.coach-home-tagline {
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.coach-home-rows {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+/* 窄屏一行两层（标签在上），宽屏才并排成两列 —— 面板只有 470px，
+   两个中文字宽的标签和七个字的值挤一行会在 360px 手机上换行换得难看。 */
+.coach-home-row {
+  display: grid;
+  gap: 2px;
+  align-items: baseline;
+}
+
+.coach-home-row > :last-child {
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.coach-home-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (min-width: 480px) {
+  .coach-home-row {
+    grid-template-columns: 104px 1fr;
+    gap: 8px;
+  }
+}
+
+/* 荣誉和简介都是纯一行：两边的空白归一（后端 coach_trim、界面 validateCoachProfile）
+   会把换行压成一个空格，所以这里不写 pre-line —— 写了只会让人以为换行存得住。 */
+.coach-home-honors {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.coach-home-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.coach-home-photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+/* 证书要完整露出，不能像个人照片那样裁掉边缘的姓名和编号。 */
+.coach-home-certificate {
+  object-fit: contain;
+  background: var(--surface);
+}
+
+.coach-home-state {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* 资料表单。四组多选沿用偏好面板的 chips，这里只补数字、下拉和图片三样。 */
+.coach-numbers {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.coach-numbers .pref-group {
+  margin-top: 0;
+}
+
+/* select 由 src/ui/coachProfile.js 生成后塞进这个 span，flex 让下拉填满栏宽。 */
+.cp-select-box {
+  display: flex;
+  min-width: 0;
+}
+
+.coach-profile-dialog input[type='text'] {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+/* 比标签再淡一点：这几栏的提示语是"没有就空着"，看着像已填就白拦人一次。 */
+.coach-profile-dialog input[type='text']::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.coach-profile-dialog input[type='text']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.coach-profile-dialog .pref-group.invalid input[type='text'],
+.coach-profile-dialog .pref-group.invalid select {
+  border-color: var(--danger);
+}
+
+.pref-group.invalid .field-label {
+  color: var(--danger);
+}
+
+.coach-photo-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.coach-avatar-box,
+.coach-photos {
+  width: 100%;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.coach-avatar-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coach-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.coach-avatar-box .coach-photo {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.coach-photo-cell {
+  position: relative;
+}
+
+.coach-photo-cell .coach-photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.coach-photo-cell .coach-certificate-photo {
+  object-fit: contain;
+  background: var(--surface);
+}
+
+.coach-profile-dialog .coach-photo-group.invalid .coach-avatar-box,
+.coach-profile-dialog .coach-photo-group.invalid .coach-photos {
+  border-color: var(--danger);
+}
+
+.coach-photo-group.invalid .pref-legend-text {
+  color: var(--danger);
+}
+
+.coach-photo-remove {
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 11px;
+}
+
+/* 照片格子上盖在图角，头像那一格是横排 —— 不这样写的话那颗按钮会飞出框外。 */
+.coach-photo-cell .coach-photo-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+/* 图挂了（文件被删、网络断了）：碎图标收掉，格子留着 —— 留着才按得到【移除】。 */
+.coach-avatar-box.broken .coach-photo,
+.coach-photo-cell.broken .coach-photo {
+  display: none;
+}
+
+.coach-avatar-box.broken,
+.coach-photo-cell.broken {
+  min-height: 44px;
+  border-color: var(--danger);
+}
+
+.coach-avatar-box.broken::after,
+.coach-photo-cell.broken::after {
+  content: '这张图读不出来';
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.coach-photo-empty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 【换头像】【添加照片】：包着原生 file input 的 label，所以点它就是选文件。
+   那个 input 只是藏起来，没挂 required，也不在任何 <form> 里 —— 三条里有一条变
+   就会被那个 1×1 的隐形控件坑到（见 memory 里"隐形控件的两个静默失效坑"）。 */
+.coach-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.coach-file[hidden] {
+  display: none;
+}
+
+.coach-file:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.coach-file:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.coach-file input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* 申请框里那一行"哪天交的/哪天答的"：贴在 hint 下面，比正文低一档，

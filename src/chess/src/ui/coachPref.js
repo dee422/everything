@@ -98,10 +98,11 @@ function hintOf(group) {
  *   showToast(text: string): void,
  *   player(): object|null,        // 账号面板里那个人，null 表示没登录
  *   openAccount(which?: string): void,
+ *   onPrefChange?(): void,        // 名录要按这份偏好重排，所以填完得叫一声
  * }} deps
- * @returns {{open(): void, refresh(): void}}
+ * @returns {{open(): void, refresh(): void, value(): object|null}}
  */
-export function mountCoachPref({ showToast, player, openAccount }) {
+export function mountCoachPref({ showToast, player, openAccount, onPrefChange }) {
   // 六组选项是这里生成的（选项表在 game/coachPref.js），所以先把控件建出来
   // 再去取元素引用 —— 反过来做的话 el.timezone 会是个 null，
   // 而"打开面板就报错"这种错在只有 HTML 静态元素的版本里看不见。
@@ -244,6 +245,7 @@ export function mountCoachPref({ showToast, player, openAccount }) {
       paintCard();
       fill(current);
       el.dialog.close();
+      onPrefChange?.();
       showToast(current ? '记下了。教练入驻时按这个给你推荐。' : '偏好已保存。');
     } else {
       showError(reply.message ?? '没能存上，请再试一次。', reply.field ?? null);
@@ -273,10 +275,14 @@ export function mountCoachPref({ showToast, player, openAccount }) {
     if (!player()) {
       current = null;
       paintCard();
+      onPrefChange?.();
       return;
     }
-    load().then(() => paintCard());
+    load().then(() => {
+      paintCard();
+      onPrefChange?.();
+    });
   }
 
-  return { open, refresh };
+  return { open, refresh, value: () => current };
 }

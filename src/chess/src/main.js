@@ -22,6 +22,7 @@ import {
   Check,
   Link,
   LogOut,
+  ChevronDown,
   ChevronFirst,
   ChevronLeft,
   ChevronRight,
@@ -33,6 +34,7 @@ import {
   Square,
   ArrowRight,
   Eraser,
+  RotateCw,
   Trash2,
   Upload,
   School,
@@ -78,6 +80,8 @@ import { addEntry, pushToServer, deleteFromServer, loadLibrary } from './game/li
 import { clearGame, loadGame, saveGame } from './game/persistence.js';
 import { mountLibrary } from './ui/library.js';
 import { mountCoachPref } from './ui/coachPref.js';
+import { mountCoachProfile } from './ui/coachProfile.js';
+import { mountCoachDirectory } from './ui/coachDirectory.js';
 import { mountCoachApp } from './ui/coachApp.js';
 import { analyzeGame, CLASSIFY_ANNOT, CLASSIFY_LABEL, markFor } from './game/review.js';
 import { mountReviewPanel, mountReviewProgress } from './ui/reviewPanel.js';
@@ -117,6 +121,7 @@ createIcons({
     Check,
     Link,
     LogOut,
+    ChevronDown,
     ChevronFirst,
     ChevronLeft,
     ChevronRight,
@@ -128,6 +133,7 @@ createIcons({
     Square,
     ArrowRight,
     Eraser,
+    RotateCw,
     Trash2,
     Upload,
     School,
@@ -4402,10 +4408,13 @@ mountLibrary({
  * it is the room: signing out stops watching it, since the referee will not
  * take another move from a seat that is no longer signed in.
  */
-/** 见 ui/coachPref.js 与 ui/coachApp.js。用 let 而不是 const：下面 mountAccount 会同步
- * paint 一次，那一次的 onIdentity 就要读这两个变量，声明在它后面会撞暂时性死区。 */
+/** 见 ui/coachPref.js、ui/coachApp.js、ui/coachProfile.js、ui/coachDirectory.js。
+ * 用 let 而不是 const：下面 mountAccount 会同步 paint 一次，那一次的 onIdentity
+ * 就要读这几个变量，声明在它后面会撞暂时性死区。 */
 let coachPref = null;
 let coachApp = null;
+let coachProfile = null;
+let coachDirectory = null;
 
 const account = mountAccount({
   showToast,
@@ -4416,6 +4425,10 @@ const account = mountAccount({
     if (classGateLine) setClassError('');
     coachPref?.refresh();
     coachApp?.refresh();
+    // 退出之后【填我的教练资料】要立刻收掉，名录上"这是我"那一枚也一样；
+    // 登录之后问一次资料，那颗按钮才知道该说"填"还是"改"。
+    coachProfile?.refresh();
+    coachDirectory?.refresh();
   },
 });
 
@@ -4439,6 +4452,28 @@ coachPref = mountCoachPref({
   showToast,
   player: () => account.player(),
   openAccount: (which) => account.open(which),
+  // 偏好一改，名录那一列的顺序就得重算（排序在界面这一侧，见 game/coachMatch.js）。
+  onPrefChange: () => coachDirectory?.refresh(),
+});
+
+/**
+ * 「填我的教练资料」：只给批过的教练（含管理员）看，判据来自 coachApp 那一态。
+ * 资料本身在服务器上还有第二道门（chess_coach_profile_save.php 里的 can_teach），
+ * 这里的隐藏只是为了不让人点了才吃一句 403。
+ */
+coachProfile = mountCoachProfile({
+  showToast,
+  player: () => account.player(),
+  openAccount: (which) => account.open(which),
+  canTeach: () => coachApp?.state() === 'approved',
+  onChanged: () => coachDirectory?.refresh(),
+});
+
+/** 名录 + 主页：公开数据，首屏就取一次，没登录也看得见有谁在教。 */
+coachDirectory = mountCoachDirectory({
+  player: () => account.player(),
+  pref: () => coachPref?.value() ?? null,
+  openProfile: () => coachProfile?.open(),
 });
 
 /**
@@ -4449,7 +4484,11 @@ coachApp = mountCoachApp({
   showToast,
   player: () => account.player(),
   openAccount: (which) => account.open(which),
-  onStateChange: () => updateModeUi(),
+  onStateChange: () => {
+    updateModeUi();
+    // 刚批下来的教练当场就能看到【填我的教练资料】，不用刷新页面。
+    coachProfile?.syncGate();
+  },
 });
 
 /**

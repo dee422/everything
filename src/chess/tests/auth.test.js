@@ -151,7 +151,7 @@ describe('problemText', () => {
       'verify_required', 'bad_room_code', 'no_such_room', 'room_full',
       'room_not_active', 'room_over', 'not_room_member', 'not_your_turn',
       'illegal_move', 'flagged', 'stale_move', 'bad_room_time', 'bad_room_color',
-      'too_many_rooms', 'too_many_joins',
+      'too_many_rooms', 'too_many_joins', 'too_many_certificates',
     ];
     // Every code but 'server' has to say something the fallback does not,
     // because 'server' is exactly what the fallback says.
