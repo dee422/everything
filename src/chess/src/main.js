@@ -3898,6 +3898,9 @@ async function classCall(what) {
     return await what();
   } finally {
     classRequestOut = false;
+    // Snapshots repaint the panel while the request is still in flight, so the
+    // button disabled above must be undone here rather than at the next poll.
+    updateModeUi();
   }
 }
 
