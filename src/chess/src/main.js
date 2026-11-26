@@ -87,6 +87,8 @@ import { analyzeGame, CLASSIFY_ANNOT, CLASSIFY_LABEL, markFor } from './game/rev
 import { mountReviewPanel, mountReviewProgress } from './ui/reviewPanel.js';
 import { mountTacticsPanel } from './ui/tacticsPanel.js';
 import { mountLearnPanel } from './ui/learnPanel.js';
+import { BASIC_PROBLEMS } from './game/basicProblems.js';
+import { learnTopic } from './game/learnContent.js';
 import { track } from './analytics.js';
 import {
   appendToBranch,
@@ -100,6 +102,7 @@ import {
   isViewingBranch,
   navigateActiveBranch,
   pruneBranches,
+  restoreBranches,
   setActiveBranch,
 } from './game/variations.js';
 
@@ -404,6 +407,7 @@ const resultFor = (winner) => (winner === 'w' ? '1-0' : '0-1');
 
 /** The color shown at the bottom of the board. */
 function bottomColor() {
+  if (tacticsMode) return tacticsViewColor;
   // A classroom board belongs to the position, not to the person holding it:
   // both colours are played by whoever the server has authorised, so there is no
   // "my side" to turn the board around for.
@@ -675,7 +679,7 @@ function turnNow() {
 }
 
 function clockLive() {
-  if (gameFinished()) return false;
+  if (tacticsMode || gameFinished()) return false;
   if (mode === 'online') {
     // The referee starts the clock the moment the second player sits down, so
     // an online game is timed from the first snapshot rather than from the
@@ -1053,7 +1057,7 @@ let analysisToken = 0;
  * see what either side should have done.
  */
 function analysisAllowed() {
-  return canAnalyze({ mode, onlineUiState });
+  return !tacticsMode && canAnalyze({ mode, onlineUiState });
 }
 
 function setAnalysis(on) {
@@ -1076,7 +1080,7 @@ function setAnalysis(on) {
   // 棋盘下面那份棋谱两边都要重画：开分析才点得动支线，关分析要看得见它变成只能看。
   renderAll();
   // 回到下棋：分析期间欠着电脑的那一手补上（见 afterMove 里让路的那句）。
-  if (!on && mode === 'computer' && !thinking && !gameFinished() && game.turn() !== myColor) {
+  if (!on && !tacticsMode && mode === 'computer' && !thinking && !gameFinished() && game.turn() !== myColor) {
     computerTurn();
   }
 }
@@ -1239,9 +1243,11 @@ let reviewData = null;
 let reviewPanel = null;
 let reviewProgress = null;
 let reviewAnalyzing = false;
+let reviewOpen = false;
 
 /** 是否可以复盘：有走法记录且不在在线对弈中。 */
 function canReview() {
+  if (tacticsMode) return false;
   if (mode === 'online' && onlineUiState === 'playing') return false;
   return game.history().length > 0;
 }
@@ -1267,6 +1273,7 @@ function paintReviewToggle(on) {
  * 不能再被棋盘列的剩余高度压成一条（那样只有内层小框在滚，正文看不到）。
  */
 function setReviewReportOpen(open) {
+  reviewOpen = open;
   els.reviewResultPanel.classList.toggle('hidden', !open);
   document.body.classList.toggle('review-open', open);
   paintReviewToggle(open);
@@ -1380,74 +1387,168 @@ function updateReviewHighlight(ply) {
 
 let tacticsPanel = null;
 let tacticsMode = false;
-let tacticsBusy = false;
+let tacticsReturn = null;
+let tacticsViewColor = 'w';
 
-/** 题库那一栏明说开没开：按钮变蓝、左列加宽成两栏，都看这一个开关。 */
-function paintTacticsColumn() {
-  els.tacticsBtn.setAttribute('aria-pressed', String(tacticsMode));
-  els.tacticsBtn.classList.toggle('active', tacticsMode);
-  els.tacticsCard.classList.toggle('hidden', !tacticsMode);
-  els.layout.classList.toggle('tactics-open', tacticsMode);
-  // 题面上的棋盘不归和棋/认输管：这两个按钮的显隐由 updateModeUi 统一算，
-  // 开关题库的这一下也得让它重算一遍，否则题面旁边还挂着对局的两个按钮。
-  updateModeUi();
+function canManageTactics() {
+  return coachApp?.state() === 'approved';
 }
 
-/**
- * 题库只对教练开放。管理员按管理员邮箱认，服务端算出的 can_teach 把这两种人
- * 折成同一态（approved），所以这里只问一句。
- *
- * 没登录、或者这一趟没取回来（state 为 null）时不直接下结论：先补问一次，
- * 问完仍不是教练就走申请入口 —— 那句提示本身就是给辅导员看的广告。
- */
-async function openTactics() {
-  if (tacticsMode || tacticsBusy) return;
-  tacticsBusy = true;
-  let state = coachApp?.state() ?? null;
-  if (state === null && account.player()) {
-    await coachApp.refresh();
-    state = coachApp.state();
-  }
-  tacticsBusy = false;
+function paintTacticsColumn() {
+  els.layout.classList.toggle('tactics-open', tacticsMode);
+  els.tacticsCard.classList.toggle('hidden', !tacticsMode);
+  els.tacticsBtn.setAttribute('aria-pressed', String(tacticsMode));
+}
 
-  if (state !== 'approved') {
-    coachApp?.noteBlocked();
-    if (account.player()) showToast('题库只对教练开放 —— 申请成为教练后就能用。');
+/** 离开棋盘去做题前，把这一盘连钟、支线和复盘位置一起收好。 */
+function saveTacticsReturn() {
+  clock.setRunning(null);
+  const activeBranch = getActiveBranch();
+  return {
+    origin: gameOrigin,
+    moves: game.history().map((move) => ({
+      from: move.from,
+      to: move.to,
+      promotion: move.promotion || null,
+    })),
+    myColor,
+    viewColor,
+    analyzing,
+    clockControl: clock.control ? { ...clock.control } : null,
+    clock: clock.enabled ? clock.snapshot() : null,
+    clockStack: clockStack.map((pair) => ({ ...pair })),
+    lowAnnounced: { ...lowAnnounced },
+    manualEnd,
+    reviewData,
+    reviewOpen,
+    reviewIndex,
+    branches: getBranches(),
+    activeBranch: activeBranch ? { path: [...activeBranch.path], ply: activeBranch.ply } : null,
+    startTracked,
+    endTracked,
+    archiveId,
+    announcedPlies,
+  };
+}
+
+function restoreTacticsReturn() {
+  const saved = tacticsReturn;
+  if (!saved) return;
+  loadBoard(saved.origin);
+  for (const move of saved.moves) {
+    game.move({ from: move.from, to: move.to, promotion: move.promotion || 'q' });
+  }
+  restoreBranches(saved.branches);
+  if (saved.activeBranch) setActiveBranch(saved.activeBranch.path, saved.activeBranch.ply);
+  myColor = saved.myColor;
+  viewColor = saved.viewColor;
+  reviewIndex = saved.reviewIndex;
+  reviewData = saved.reviewData;
+  manualEnd = saved.manualEnd;
+  startTracked = saved.startTracked;
+  endTracked = saved.endTracked;
+  archiveId = saved.archiveId;
+  announcedPlies = saved.announcedPlies;
+  clock = new Clock(saved.clockControl);
+  clockStack = saved.clockStack;
+  lowAnnounced = saved.lowAnnounced;
+  if (clock.enabled) clock.restore(saved.clock);
+  if (reviewData) {
+    showReviewResults();
+    setReviewReportOpen(saved.reviewOpen);
+  }
+  tacticsReturn = null;
+  tacticsViewColor = 'w';
+  clearSelection();
+  boardView.setOrientation(bottomColor());
+}
+
+/** 题库人人都能解题；只有教练资格控制导入和题目集管理。 */
+function openTactics(topicId = null) {
+  if (tacticsMode) {
+    if (topicId && tacticsPanel) openPractice(topicId);
+    return;
+  }
+  if (reviewAnalyzing) {
+    showToast('复盘还在计算，算完再来做题。');
+    return;
+  }
+  const onlineActive = ['creating', 'hosting', 'joining', 'playing'].includes(onlineUiState);
+  const classActive = ['creating', 'joining', 'teaching', 'spectating'].includes(classUiState);
+  if (onlineActive || classActive) {
+    showToast('先离开在线对弈或课堂，再来做题 —— 棋盘要跟着那边更新。');
     return;
   }
 
+  tacticsReturn = saveTacticsReturn();
   tacticsMode = true;
-  // 电脑可能正想着上一局的应手；进题库就把它作废，别让它落到题面上。
-  if (thinking) {
-    aiToken++;
-    thinking = false;
-  }
-  // 关闭其他模式
+  aiToken++;
+  thinking = false;
+  reviewIndex = null;
   if (analyzing) setAnalysis(false);
-  if (reviewPanel) clearReview();
+  clearReview();
 
   paintTacticsColumn();
   if (!tacticsPanel) {
     tacticsPanel = mountTacticsPanel(els.tacticsPanelContainer, {
+      problems: BASIC_PROBLEMS,
+      canManage: canManageTactics(),
       setFen: (fen) => {
         loadBoard(fen);
+        tacticsViewColor = game.turn();
+        boardView.setOrientation(tacticsViewColor);
         const plies = renderAll();
         updateTacticsHighlight(plies);
       },
       getFen: () => game.fen(),
     });
+  } else {
+    tacticsPanel.setCanManage(canManageTactics());
+    if (!topicId) {
+      const problemId = tacticsPanel.getState().currentProblemId || BASIC_PROBLEMS[0]?.id;
+      if (problemId) tacticsPanel.selectProblemById(problemId);
+    }
   }
+  if (topicId) openPractice(topicId);
+  if (account.player() && coachApp?.state() == null) void coachApp.refresh();
 }
 
-/** 收起题库那一栏，面板本身留着：再打开时还是刚才那道题。 */
+/** 教程的「练一练」直接落到对应章节推荐的第一道题。 */
+function openPractice(topicId) {
+  const topic = learnTopic(topicId);
+  const problemId = topic?.practiceIds?.[0];
+  if (!problemId) {
+    showToast('这节课的练习暂时没找到。');
+    return false;
+  }
+  if (!tacticsMode) {
+    openTactics(topicId);
+    return tacticsMode;
+  }
+  if (!tacticsPanel?.selectProblemById(problemId)) {
+    showToast('这节课的练习暂时没找到。');
+    return false;
+  }
+  return true;
+}
+
+/** 收起题库并恢复原来的对局；面板本身留着，下次还是刚才那道题。 */
 function closeTactics() {
+  if (!tacticsMode) return;
+  const resumeAnalysis = tacticsReturn?.analyzing ?? false;
   tacticsMode = false;
+  restoreTacticsReturn();
   paintTacticsColumn();
+  renderAll();
+  if (resumeAnalysis && !analyzing) setAnalysis(true);
+  else if (mode === 'computer' && !thinking && !gameFinished() && game.turn() !== myColor) computerTurn();
 }
 
-/** 清除题库面板。 */
+/** 换模式或开新局时丢弃快照，不能把上一盘恢复回来。 */
 function clearTactics() {
   tacticsMode = false;
+  tacticsReturn = null;
+  tacticsViewColor = 'w';
   paintTacticsColumn();
   if (tacticsPanel) {
     tacticsPanel.destroy();
@@ -1484,6 +1585,7 @@ function updateTacticsHighlight(plies) {
  * is the only way a clock reading taken mid-move gets stored.
  */
 function saveNow() {
+  if (tacticsMode) return;
   if (mode === 'online' || gameFinished() || game.history().length === 0) {
     // Nothing worth resuming: an online game cannot outlive its connection, a
     // finished one should not greet the player as if it were still going, and
@@ -1791,7 +1893,7 @@ function paint() {
 
 /** Undo takes back from the live position, so it is off while reviewing. */
 function canUndo() {
-  if (mode === 'online' || reviewing()) return false;
+  if (tacticsMode || mode === 'online' || reviewing()) return false;
   if (mode === 'computer') {
     return !thinking && game.history().some((m) => m.color === myColor);
   }
@@ -1826,7 +1928,12 @@ function renderPlayers() {
   const turn = turnNow();
 
   let topIsCpu = false;
-  if (mode === 'computer') {
+  if (tacticsMode) {
+    els.topName.textContent = colorName(top);
+    els.topCaption.textContent = turn === top ? '由你走' : '等待';
+    els.bottomName.textContent = colorName(bottom);
+    els.bottomCaption.textContent = turn === bottom ? '由你走' : '等待';
+  } else if (mode === 'computer') {
     topIsCpu = true;
     els.topName.textContent = '电脑';
     els.topCaption.textContent = thinking
@@ -2161,7 +2268,7 @@ function scrollNotationIntoView() {
 }
 
 function renderClocks() {
-  const shown = clock.enabled;
+  const shown = clock.enabled && !tacticsMode;
   els.clockTop.classList.toggle('hidden', !shown);
   els.clockBottom.classList.toggle('hidden', !shown);
   if (!shown) return;
@@ -2292,6 +2399,10 @@ function describeEnd(status) {
 
 /** How the game on the board ended, or null while it is still going. */
 function currentEnd() {
+  if (tacticsMode) {
+    const status = game.status();
+    return status.over ? describeEnd(status) : null;
+  }
   // Online, nothing but the server's verdict counts: it does not judge the
   // three draws the engine sees (repetition, fifty moves, bare kings), so
   // `game.status()` would end games the referee is still playing.
@@ -2427,8 +2538,8 @@ function updateModeUi() {
   }
   els.controlsHint.classList.toggle('hidden', !showHint);
 
-  els.newGameBtn.classList.toggle('hidden', online || inClass);
-  els.undoBtn.classList.toggle('hidden', online || inClass);
+  els.newGameBtn.classList.toggle('hidden', online || inClass || tacticsMode);
+  els.undoBtn.classList.toggle('hidden', online || inClass || tacticsMode);
   // 和棋/认输：在线要坐下之后才有对面，电脑和讲解一开局就能用。
   // 题库里的棋盘是题面，不归这两个按钮管。
   const canEndNow = !finished && !tacticsMode && (playing || (!online && !inClass));
@@ -2485,13 +2596,13 @@ function targetsFor(square) {
 
 /** The color the person at this device may pick up right now, or null. */
 function movableColorNow() {
+  // 题库里轮到谁走就谁走：题面可能执黑先行，教练也会用棋盘现摆局面。
+  if (tacticsMode) return gameFinished() && !analyzing ? null : game.turn();
   // An older position is a picture of the game, not a place to play from.
   // Exception: in analysis mode, the player may try moves from any position
   // to create variations (see #107). Allow both colors when reviewing in
   // analysis mode, since we're exploring variations, not playing a real game.
   if (reviewing() && !analyzing) return null;
-  // 题库里轮到谁走就谁走：题面可能执黑先行，教练也会用棋盘现摆局面。
-  if (tacticsMode) return gameFinished() && !analyzing ? null : game.turn();
   if (gameFinished() && !analyzing) return null;
   // In analysis mode while reviewing, allow moves for the color whose turn it
   // is at the historical position being viewed (not the current game's turn).
@@ -2673,6 +2784,14 @@ function recordBranchMove(san) {
   if (path) setActiveBranch(path, 1);
 }
 
+/** 错着在落盘前撤销；解法没走完时，两边回合都由做题者继续。 */
+function acceptTacticsMove(played) {
+  const uci = played.from + played.to + (played.promotion || '');
+  if (tacticsPanel?.checkMove(uci)) return true;
+  game.undo();
+  return false;
+}
+
 function attemptMove(from, to, { animate }) {
   // 分析模式里回头看旧局面时，这一手是记进棋谱的变化而不是在下这盘棋（见 #107）。
   // 要赶在拿 live game 校验之前处理：显示的那个局面和棋盘现在的 turn 可能已经不
@@ -2705,11 +2824,10 @@ function attemptMove(from, to, { animate }) {
       return;
     }
     if (tacticsMode) {
-      // 题库优先：题面走子在本地判，不往在线/课堂的对局里写。
-      afterPlyApplied(played);
-      if (tacticsPanel) {
-        const uci = played.from + played.to + (played.promotion || '');
-        tacticsPanel.checkMove(uci);
+      if (!acceptTacticsMove(played)) {
+        clearSelection();
+        renderAll();
+        return;
       }
     } else if (mode === 'online') {
       // Show the move at once and ask the referee to write it down. `sentSan`
@@ -4501,6 +4619,7 @@ coachApp = mountCoachApp({
   openAccount: (which) => account.open(which),
   onStateChange: () => {
     updateModeUi();
+    tacticsPanel?.setCanManage(canManageTactics());
     // 刚批下来的教练当场就能看到【填我的教练资料】，不用刷新页面。
     coachProfile?.syncGate();
   },
@@ -4517,7 +4636,7 @@ function teacherBlocked() {
 }
 
 /** 国象自学教程：左边常驻的一张小卡，人人可看，不经过任何资格门。 */
-mountLearnPanel();
+mountLearnPanel({ onPractice: openPractice });
 
 /* ------------------------------------------------------------------ */
 /* Wiring                                                              */

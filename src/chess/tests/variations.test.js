@@ -11,6 +11,7 @@ import {
   isViewingBranch,
   navigateActiveBranch,
   pruneBranches,
+  restoreBranches,
   setActiveBranch,
 } from '../src/game/variations.js';
 
@@ -154,5 +155,23 @@ describe('主线变短之后', () => {
     clearBranches();
     expect(getBranches()).toEqual([]);
     expect(isViewingBranch()).toBe(false);
+  });
+});
+
+describe('快照恢复', () => {
+  it('完整恢复嵌套支线，且不把当前支线视角一起带回来', () => {
+    const branch = branchAt([], 1, 'c5');
+    appendToBranch(branch, 'Nf3');
+    const child = branchAt(branch, 1, 'Nc6');
+    appendToBranch(child, 'Bb4');
+    branchAt([], 2, 'd4');
+    setActiveBranch(child, 1);
+    const saved = getBranches();
+
+    clearBranches();
+    restoreBranches(saved);
+
+    expect(getBranches()).toEqual(saved);
+    expect(getActiveBranch()).toBeNull();
   });
 });

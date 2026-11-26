@@ -11,6 +11,7 @@ export const LEARN_TOPICS = [
     label: '摆好棋盘',
     title: '摆好棋盘：白方在下，右下角是白格',
     lead: '棋盘是 8×8 的方格。开始前记住三句话：白棋在下、黑棋在上；右下角是白格；白方先走。',
+    practiceIds: ['basic-setup-e2-e4'],
     sections: [
       {
         heading: '底线怎么摆',
@@ -34,6 +35,7 @@ export const LEARN_TOPICS = [
     label: '棋子怎么走',
     title: '棋子怎么走：六种子，六种脾气',
     lead: '先弄清每个子能去哪儿，再去想为什么这样走。下面按从简单到厉害的顺序说。',
+    practiceIds: ['basic-pieces-knight'],
     sections: [
       {
         heading: '兵',
@@ -82,6 +84,7 @@ export const LEARN_TOPICS = [
     label: '特殊规则',
     title: '特殊规则：将军、易位、吃过路兵、和棋',
     lead: '会走子以后，还要知道什么时候算将军、什么时候棋局结束。',
+    practiceIds: ['basic-rules-castle', 'basic-rules-back-rank'],
     sections: [
       {
         heading: '将军与将死',
@@ -119,6 +122,7 @@ export const LEARN_TOPICS = [
     label: '开局三原则',
     title: '开局三原则：占中心、出子、保王',
     lead: '开局不用背套路。先把这三件事做好，就已经比大多数初学者稳。',
+    practiceIds: ['basic-opening-center', 'basic-opening-develop'],
     sections: [
       {
         heading: '先占中心',
@@ -153,6 +157,7 @@ export const LEARN_TOPICS = [
     label: '常见战术',
     title: '常见战术：几手之内占到便宜',
     lead: '战术就是几步之内能占到便宜的手段。题库里练的多半是下面这几类。',
+    practiceIds: ['basic-tactics-fork', 'basic-tactics-pin'],
     sections: [
       {
         heading: '击双（叉子）',

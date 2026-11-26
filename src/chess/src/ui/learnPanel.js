@@ -9,7 +9,7 @@ import { LEARN_TOPICS } from '../game/learnContent.js';
 
 const $ = (id) => document.getElementById(id);
 
-export function mountLearnPanel() {
+export function mountLearnPanel({ onPractice } = {}) {
   const card = $('learn-card');
   const dialog = $('learn-dialog');
   const el = {
@@ -46,6 +46,18 @@ export function mountLearnPanel() {
         list.appendChild(line);
       }
       el.body.appendChild(list);
+    }
+
+    if (onPractice) {
+      const practice = document.createElement('button');
+      practice.type = 'button';
+      practice.className = 'btn btn-primary learn-practice';
+      practice.textContent = `练一练：${topic.label}`;
+      practice.addEventListener('click', () => {
+        dialog.close();
+        onPractice(topic.id);
+      });
+      el.body.appendChild(practice);
     }
 
     el.body.scrollTop = 0;

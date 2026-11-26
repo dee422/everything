@@ -7,6 +7,7 @@
  */
 
 import { Chess } from '../engine/chess.js';
+import { BASIC_PROBLEMS } from '../game/basicProblems.js';
 import { importAuto, importFenSolutionFormat } from '../game/tactics.js';
 import {
   toggleFavorite,
@@ -52,8 +53,10 @@ const FORMAT_SAMPLE = [
  * @param {object} options
  * @param {function} options.setFen - 把棋盘摆成题目局面 (fen) => void
  * @param {function} options.getFen - 读棋盘当前局面 () => fen，导入时用来取局面
+ * @param {boolean} options.canManage - 是否显示教练的导入与题目集管理
+ * @param {object[]} options.problems - 初始题目
  */
-export function mountTacticsPanel(container, { setFen, getFen } = {}) {
+export function mountTacticsPanel(container, { setFen, getFen, canManage = false, problems = [] } = {}) {
   container.innerHTML = '';
   container.classList.add('tactics-panel');
 
@@ -62,6 +65,7 @@ export function mountTacticsPanel(container, { setFen, getFen } = {}) {
     currentIndex: 0,
     currentMoveIndex: 0,
     status: 'idle',
+    canManage: Boolean(canManage),
     importMode: 'text',
     filter: {
       favoritesOnly: false,
@@ -75,6 +79,7 @@ export function mountTacticsPanel(container, { setFen, getFen } = {}) {
     refreshList: () => {},
     refreshStore: () => {},
     refreshAll: () => {},
+    resetFilters: () => {},
   };
   panel.refreshAll = () => {
     panel.refreshProblem();
@@ -87,12 +92,38 @@ export function mountTacticsPanel(container, { setFen, getFen } = {}) {
   const storeSection = buildStoreSection(panel);
   const importSection = buildImportSection(panel);
 
-  container.append(problemSection, listSection, storeSection, importSection);
-  importSection.open = true;
+  container.append(problemSection, listSection, storeSection.root, importSection);
 
-  panel.refreshAll();
+  function syncManagement() {
+    importSection.hidden = !panel.canManage;
+    importSection.open = panel.canManage;
+    storeSection.manage.hidden = !panel.canManage;
+    panel.refreshStore();
+  }
+
+  syncManagement();
+  loadProblems(panel, problems);
 
   return {
+    setCanManage(canManage) {
+      panel.canManage = Boolean(canManage);
+      syncManagement();
+    },
+    selectProblemById(id) {
+      panel.resetFilters();
+      let index = panel.problems.findIndex((problem) => problem.id === id);
+      if (index < 0 && BASIC_PROBLEMS.some((problem) => problem.id === id)) {
+        const merged = [...BASIC_PROBLEMS];
+        for (const problem of panel.problems) {
+          if (!merged.some((known) => known.id === problem.id)) merged.push(problem);
+        }
+        loadProblems(panel, merged, id);
+        index = panel.problems.findIndex((problem) => problem.id === id);
+      }
+      if (index < 0) return false;
+      selectProblem(panel, index);
+      return true;
+    },
     update(problems) {
       loadProblems(panel, problems);
     },
@@ -106,7 +137,10 @@ export function mountTacticsPanel(container, { setFen, getFen } = {}) {
       return {
         problems: panel.problems,
         currentIndex: panel.currentIndex,
+        currentProblemId: panel.problems[panel.currentIndex]?.id ?? null,
+        currentMoveIndex: panel.currentMoveIndex,
         status: panel.status,
+        canManage: panel.canManage,
       };
     },
     checkMove(uci) {
@@ -172,7 +206,9 @@ function buildProblemSection(panel) {
       counter.textContent = '暂无题目';
       statusBadge.textContent = '';
       statusBadge.className = 'tactics-status';
-      hint.textContent = '先在下面「导入题目与格式」里导入一道题。';
+      hint.textContent = panel.canManage
+        ? '先在下面「导入题目与格式」里导入一道题。'
+        : '基础练习加载中。';
       feedback.textContent = '';
       feedback.className = 'tactics-feedback hidden';
       for (const button of [prevBtn, nextBtn, retryBtn, solutionBtn, randomBtn]) {
@@ -186,7 +222,7 @@ function buildProblemSection(panel) {
     statusBadge.className = `tactics-status status-${panel.status}`;
 
     const turn = problem.fen.split(' ')[1] === 'w' ? '白方' : '黑方';
-    let hintText = `${turn}走棋，找到最佳走法`;
+    let hintText = problem.prompt || `${turn}走棋，找到最佳走法`;
     if (problem.tags && problem.tags.length > 0) {
       hintText += ` · ${problem.tags.join('、')}`;
     }
@@ -249,16 +285,15 @@ function buildListSection(panel) {
 
   const filterRow = document.createElement('div');
   filterRow.className = 'tactics-filter-row';
-  filterRow.append(
-    filterCheckbox('仅收藏', panel.filter.favoritesOnly, (checked) => {
-      panel.filter.favoritesOnly = checked;
-      panel.refreshList();
-    }),
-    filterCheckbox('仅未做', panel.filter.unsolvedOnly, (checked) => {
-      panel.filter.unsolvedOnly = checked;
-      panel.refreshList();
-    }),
-  );
+  const favoritesFilter = filterCheckbox('仅收藏', panel.filter.favoritesOnly, (checked) => {
+    panel.filter.favoritesOnly = checked;
+    panel.refreshList();
+  });
+  const unsolvedFilter = filterCheckbox('仅未做', panel.filter.unsolvedOnly, (checked) => {
+    panel.filter.unsolvedOnly = checked;
+    panel.refreshList();
+  });
+  filterRow.append(favoritesFilter, unsolvedFilter);
 
   const selectRow = document.createElement('label');
   selectRow.className = 'tactics-select-row';
@@ -297,6 +332,17 @@ function buildListSection(panel) {
 
   section.append(toolbar, listHead, list);
 
+  panel.resetFilters = () => {
+    panel.filter.favoritesOnly = false;
+    panel.filter.unsolvedOnly = false;
+    panel.filter.searchText = '';
+    panel.filter.difficultyMode = 'all';
+    search.value = '';
+    favoritesFilter.firstChild.checked = false;
+    unsolvedFilter.firstChild.checked = false;
+    select.value = 'all';
+  };
+
   panel.refreshList = () => {
     list.innerHTML = '';
     const filtered = filteredProblems(panel);
@@ -304,7 +350,9 @@ function buildListSection(panel) {
       panel.problems.length === 0 ? '' : `${filtered.length} / ${panel.problems.length} 道`;
 
     if (panel.problems.length === 0) {
-      list.appendChild(emptyNote('还没有题目。点下面「导入题目与格式」试试。'));
+      list.appendChild(emptyNote(panel.canManage
+        ? '还没有题目。点下面「导入题目与格式」试试。'
+        : '基础练习加载中。'));
       return;
     }
     if (filtered.length === 0) {
@@ -344,6 +392,7 @@ function problemRow(panel, problem, index) {
   row.classList.toggle('selected', selected);
   row.setAttribute('role', 'option');
   row.setAttribute('aria-selected', String(selected));
+  row.dataset.problemId = problem.id;
   row.tabIndex = 0;
 
   const info = document.createElement('div');
@@ -351,7 +400,7 @@ function problemRow(panel, problem, index) {
 
   const idSpan = document.createElement('span');
   idSpan.className = 'problem-id';
-  idSpan.textContent = `第 ${index + 1} 题`;
+  idSpan.textContent = problem.title || `第 ${index + 1} 题`;
   info.appendChild(idSpan);
 
   if (problem.tags && problem.tags.length > 0) {
@@ -448,19 +497,23 @@ function filteredProblems(panel) {
 /* ------------------------------------------------------------------ */
 
 function buildStoreSection(panel) {
-  const details = document.createElement('details');
-  details.className = 'tactics-more tactics-store';
-
-  const summary = document.createElement('summary');
-  summary.className = 'tactics-more-summary';
-  summary.textContent = '题目集与统计';
-  details.appendChild(summary);
-
-  const body = document.createElement('div');
-  body.className = 'tactics-more-body';
+  const root = document.createElement('section');
+  root.className = 'tactics-store';
 
   const statsLine = document.createElement('p');
   statsLine.className = 'tactics-stats-line';
+  root.appendChild(statsLine);
+
+  const manage = document.createElement('details');
+  manage.className = 'tactics-more tactics-manage';
+
+  const summary = document.createElement('summary');
+  summary.className = 'tactics-more-summary';
+  summary.textContent = '题目集管理';
+  manage.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'tactics-more-body';
 
   const setsList = document.createElement('div');
   setsList.className = 'tactics-sets-list';
@@ -476,6 +529,7 @@ function buildStoreSection(panel) {
   saveBtn.className = 'btn btn-primary btn-sm';
   saveBtn.textContent = '保存当前';
   saveBtn.addEventListener('click', () => {
+    if (!panel.canManage) return;
     const name = nameInput.value.trim();
     if (!name) {
       nameInput.focus();
@@ -487,8 +541,9 @@ function buildStoreSection(panel) {
   });
   saveRow.append(nameInput, saveBtn);
 
-  body.append(statsLine, setsList, saveRow);
-  details.appendChild(body);
+  body.append(setsList, saveRow);
+  manage.appendChild(body);
+  root.appendChild(manage);
 
   panel.refreshStore = () => {
     const solved = panel.problems.filter((problem) => getProgress(problem.id)?.solved).length;
@@ -507,11 +562,11 @@ function buildStoreSection(panel) {
       }
     }
 
-    saveBtn.disabled = panel.problems.length === 0;
-    nameInput.disabled = panel.problems.length === 0;
+    saveBtn.disabled = !panel.canManage || panel.problems.length === 0;
+    nameInput.disabled = !panel.canManage || panel.problems.length === 0;
   };
 
-  return details;
+  return { root, manage };
 }
 
 function setItem(panel, name) {
@@ -527,6 +582,7 @@ function setItem(panel, name) {
   loadBtn.className = 'btn btn-ghost btn-sm';
   loadBtn.textContent = '加载';
   loadBtn.addEventListener('click', () => {
+    if (!panel.canManage) return;
     const problems = loadProblemSet(name);
     if (problems) loadProblems(panel, problems);
   });
@@ -536,6 +592,7 @@ function setItem(panel, name) {
   deleteBtn.className = 'btn btn-ghost btn-sm btn-danger';
   deleteBtn.textContent = '删除';
   deleteBtn.addEventListener('click', () => {
+    if (!panel.canManage) return;
     if (confirm(`确定删除题目集「${name}」？`)) {
       deleteProblemSet(name);
       panel.refreshStore();
@@ -556,7 +613,7 @@ function buildImportSection(panel) {
 
   const summary = document.createElement('summary');
   summary.className = 'tactics-more-summary';
-  summary.textContent = '导入题目与格式';
+  summary.textContent = '教练导入与格式';
   details.appendChild(summary);
 
   const body = document.createElement('div');
@@ -630,6 +687,7 @@ function buildImportSection(panel) {
   }
 
   function runImport(text) {
+    if (!panel.canManage) return;
     const problems = parseImportText(text);
     loadProblems(panel, problems);
     showResult(`成功导入 ${problems.length} 道题，第一道已摆到棋盘上。`);
@@ -666,6 +724,7 @@ function buildImportSection(panel) {
   });
 
   fillBtn.addEventListener('click', () => {
+    if (!panel.canManage) return;
     const fen = panel.getFen ? panel.getFen() : null;
     if (!fen) {
       showResult('没拿到棋盘局面 —— 先把棋盘摆成你要的局面。', true);
@@ -762,11 +821,14 @@ function buildFormatGuide() {
 /* 共用的状态操作                                                      */
 /* ------------------------------------------------------------------ */
 
-function loadProblems(panel, problems) {
+function loadProblems(panel, problems, selectedId = null) {
   panel.problems = problems;
-  panel.currentIndex = 0;
+  const selectedIndex = selectedId
+    ? problems.findIndex((problem) => problem.id === selectedId)
+    : 0;
+  panel.currentIndex = Math.max(0, selectedIndex);
   if (problems.length > 0) {
-    selectProblem(panel, 0);
+    selectProblem(panel, panel.currentIndex);
   } else {
     panel.status = 'idle';
     panel.refreshAll();
@@ -787,7 +849,7 @@ function selectProblem(panel, index) {
 }
 
 function handlePlayerMove(panel, uci) {
-  if (panel.status !== 'solving') return false;
+  if (!['solving', 'incorrect'].includes(panel.status)) return false;
 
   const problem = panel.problems[panel.currentIndex];
   if (!problem) return false;
@@ -802,6 +864,8 @@ function handlePlayerMove(panel, uci) {
       panel.status = 'correct';
       recordAttempt(problem.id, true);
       updateRating(problem.difficulty || 1000, true);
+    } else {
+      panel.status = 'solving';
     }
     panel.refreshProblem();
     panel.refreshList();

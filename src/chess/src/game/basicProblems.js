@@ -1,0 +1,88 @@
+const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+export const BASIC_PROBLEMS = [
+  {
+    id: 'basic-setup-e2-e4',
+    title: '认坐标：兵走两格',
+    fen: START_FEN,
+    solution: ['e2e4'],
+    difficulty: 600,
+    tags: ['摆棋盘', '坐标'],
+    prompt: '白方先走。把 e2 的兵向前走两格，走到 e4。',
+    source: 'basic',
+  },
+  {
+    id: 'basic-pieces-knight',
+    title: '马走日字',
+    fen: START_FEN,
+    solution: ['b1c3'],
+    difficulty: 650,
+    tags: ['棋子走法', '马'],
+    prompt: '让 b1 的马跳到 c3：先直一格，再横一格。',
+    source: 'basic',
+  },
+  {
+    id: 'basic-rules-castle',
+    title: '王车易位',
+    fen: 'r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1',
+    solution: ['e1g1'],
+    difficulty: 700,
+    tags: ['特殊规则', '易位'],
+    prompt: '白方短易位：王从 e1 走到 g1，车同时落到 f1。',
+    source: 'basic',
+  },
+  {
+    id: 'basic-rules-back-rank',
+    title: '底线将死',
+    fen: '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1',
+    solution: ['d1d8'],
+    difficulty: 750,
+    tags: ['特殊规则', '将死'],
+    prompt: '白方一步将死。让 d1 的车沿 d 线走到 d8。',
+    source: 'basic',
+  },
+  {
+    id: 'basic-opening-center',
+    title: '开局占中心',
+    fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 4 3',
+    solution: ['d2d4'],
+    difficulty: 700,
+    tags: ['开局', '占中心'],
+    prompt: '轮到白方。把 d2 的兵推到 d4，继续占中心。',
+    source: 'basic',
+  },
+  {
+    id: 'basic-opening-develop',
+    title: '开局出子',
+    fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 4 3',
+    solution: ['f1c4'],
+    difficulty: 750,
+    tags: ['开局', '出子'],
+    prompt: '别让象留在角落。把 f1 的象沿斜线走到 c4。',
+    source: 'basic',
+  },
+  {
+    id: 'basic-tactics-fork',
+    title: '马的击双',
+    fen: 'r3k3/8/8/1N6/8/8/8/4K3 w - - 0 1',
+    solution: ['b5c7'],
+    difficulty: 850,
+    tags: ['战术', '击双'],
+    prompt: '马跳到 c7，同时攻击黑王 e8 和黑车 a8。',
+    source: 'basic',
+  },
+  {
+    id: 'basic-tactics-pin',
+    title: '吃掉被牵制的车',
+    fen: '4k3/4r3/8/8/1B6/8/8/4R1K1 w - - 0 1',
+    solution: ['e1e7'],
+    difficulty: 900,
+    tags: ['战术', '牵制'],
+    prompt: '黑车挡在黑王前面，白象保护 e7。让白车吃掉 e7 的车。',
+    source: 'basic',
+  },
+];
+
+export function basicProblem(id) {
+  return BASIC_PROBLEMS.find((problem) => problem.id === id) ?? null;
+}

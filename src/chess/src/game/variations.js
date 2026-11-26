@@ -203,6 +203,30 @@ export function navigateActiveBranch(direction) {
   return ply;
 }
 
+/** 恢复 getBranches() 取出的只读快照。 */
+export function restoreBranches(branches) {
+  clearBranches();
+  if (!Array.isArray(branches)) return;
+  for (const branch of branches) {
+    if (!branch || !Array.isArray(branch.moves) || !branch.moves.length) continue;
+    const path = branchAt([], branch.branchIndex, branch.moves[0]);
+    if (!path) continue;
+    for (const san of branch.moves.slice(1)) appendToBranch(path, san);
+    restoreChildren(path, branch.children);
+  }
+}
+
+function restoreChildren(parentPath, children) {
+  if (!Array.isArray(children)) return;
+  for (const child of children) {
+    if (!child || !Array.isArray(child.moves) || !child.moves.length) continue;
+    const path = branchAt(parentPath, child.branchIndex, child.moves[0]);
+    if (!path) continue;
+    for (const san of child.moves.slice(1)) appendToBranch(path, san);
+    restoreChildren(path, child.children);
+  }
+}
+
 export function clearBranches() {
   mainChildren = [];
   active = null;
