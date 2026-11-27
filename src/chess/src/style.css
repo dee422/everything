@@ -371,6 +371,9 @@ svg.lucide {
 }
 
 .learn-topic {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -386,6 +389,19 @@ svg.lucide {
   background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent-strong);
+}
+
+.learn-topic.is-complete {
+  border-color: var(--good);
+}
+
+.learn-topic-progress {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.learn-topic.is-complete .learn-topic-progress {
+  color: var(--good);
 }
 
 .tactics-card {
@@ -433,6 +449,16 @@ svg.lucide {
 .learn-body .learn-lead {
   margin: 0 0 10px;
   color: var(--muted);
+}
+
+.learn-practice-status {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.learn-practice-status.is-complete {
+  color: var(--good);
 }
 
 .learn-body h3 {

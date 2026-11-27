@@ -187,3 +187,9 @@ export const LEARN_TOPICS = [
 export function learnTopic(id) {
   return LEARN_TOPICS.find((topic) => topic.id === id) ?? null;
 }
+
+export function learnTopicProgress(topic, progress = {}) {
+  const ids = topic?.practiceIds ?? [];
+  const solved = ids.filter((id) => progress[id]?.solved).length;
+  return { solved, total: ids.length, complete: ids.length > 0 && solved === ids.length };
+}

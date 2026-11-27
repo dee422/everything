@@ -1389,6 +1389,7 @@ let tacticsPanel = null;
 let tacticsMode = false;
 let tacticsReturn = null;
 let tacticsViewColor = 'w';
+let learnPanel = null;
 
 function canManageTactics() {
   return coachApp?.state() === 'approved';
@@ -1493,6 +1494,7 @@ function openTactics(topicId = null) {
     tacticsPanel = mountTacticsPanel(els.tacticsPanelContainer, {
       problems: BASIC_PROBLEMS,
       canManage: canManageTactics(),
+      onProgress: () => learnPanel?.refresh(),
       setFen: (fen) => {
         loadBoard(fen);
         tacticsViewColor = game.turn();
@@ -4636,7 +4638,7 @@ function teacherBlocked() {
 }
 
 /** 国象自学教程：左边常驻的一张小卡，人人可看，不经过任何资格门。 */
-mountLearnPanel({ onPractice: openPractice });
+learnPanel = mountLearnPanel({ onPractice: openPractice });
 
 /* ------------------------------------------------------------------ */
 /* Wiring                                                              */

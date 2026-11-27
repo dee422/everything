@@ -55,8 +55,11 @@ const FORMAT_SAMPLE = [
  * @param {function} options.getFen - 读棋盘当前局面 () => fen，导入时用来取局面
  * @param {boolean} options.canManage - 是否显示教练的导入与题目集管理
  * @param {object[]} options.problems - 初始题目
+ * @param {function} options.onProgress - 答题进度变化时通知外部
  */
-export function mountTacticsPanel(container, { setFen, getFen, canManage = false, problems = [] } = {}) {
+export function mountTacticsPanel(container, {
+  setFen, getFen, canManage = false, problems = [], onProgress = () => {},
+} = {}) {
   container.innerHTML = '';
   container.classList.add('tactics-panel');
 
@@ -75,6 +78,7 @@ export function mountTacticsPanel(container, { setFen, getFen, canManage = false
     },
     setFen,
     getFen,
+    onProgress,
     refreshProblem: () => {},
     refreshList: () => {},
     refreshStore: () => {},
@@ -869,7 +873,10 @@ function handlePlayerMove(panel, uci) {
     }
     panel.refreshProblem();
     panel.refreshList();
-    if (finished) panel.refreshStore();
+    if (finished) {
+      panel.refreshStore();
+      panel.onProgress();
+    }
     return true;
   }
 
@@ -881,6 +888,7 @@ function handlePlayerMove(panel, uci) {
   panel.refreshProblem();
   panel.refreshList();
   panel.refreshStore();
+  panel.onProgress();
   return false;
 }
 

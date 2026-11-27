@@ -5,9 +5,14 @@
  * 正文在 game/learnContent.js 里，这一层只管摆出来和翻页。
  */
 
-import { LEARN_TOPICS } from '../game/learnContent.js';
+import { LEARN_TOPICS, learnTopicProgress } from '../game/learnContent.js';
+import { getAllProgress } from '../game/tacticsStore.js';
 
 const $ = (id) => document.getElementById(id);
+
+function progressLabel(progress) {
+  return progress.complete ? '已完成' : `练习 ${progress.solved}/${progress.total}`;
+}
 
 export function mountLearnPanel({ onPractice } = {}) {
   const card = $('learn-card');
@@ -22,6 +27,34 @@ export function mountLearnPanel({ onPractice } = {}) {
   };
 
   let current = 0;
+  let practiceStatus = null;
+  let practiceButton = null;
+
+  function paintCard() {
+    const progress = getAllProgress();
+    for (const button of card.querySelectorAll('[data-learn-topic]')) {
+      const topic = LEARN_TOPICS.find((item) => item.id === button.dataset.learnTopic);
+      if (!topic) continue;
+      const state = learnTopicProgress(topic, progress);
+      const label = document.createElement('span');
+      label.textContent = topic.label;
+      const badge = document.createElement('span');
+      badge.className = 'learn-topic-progress';
+      badge.textContent = progressLabel(state);
+      button.replaceChildren(label, badge);
+      button.classList.toggle('is-complete', state.complete);
+      button.setAttribute('aria-label', `${topic.label}，${progressLabel(state)}`);
+    }
+  }
+
+  function updatePractice(topic) {
+    const state = learnTopicProgress(topic, getAllProgress());
+    practiceStatus.textContent = `本节${progressLabel(state)}`;
+    practiceStatus.classList.toggle('is-complete', state.complete);
+    if (practiceButton) {
+      practiceButton.textContent = `${state.complete ? '再练一次' : '练一练'}：${topic.label}`;
+    }
+  }
 
   function paint() {
     const topic = LEARN_TOPICS[current];
@@ -33,6 +66,10 @@ export function mountLearnPanel({ onPractice } = {}) {
     lead.className = 'learn-lead';
     lead.textContent = topic.lead;
     el.body.appendChild(lead);
+
+    practiceStatus = document.createElement('p');
+    practiceStatus.className = 'learn-practice-status';
+    el.body.appendChild(practiceStatus);
 
     for (const section of topic.sections) {
       const heading = document.createElement('h3');
@@ -48,17 +85,18 @@ export function mountLearnPanel({ onPractice } = {}) {
       el.body.appendChild(list);
     }
 
+    practiceButton = null;
     if (onPractice) {
-      const practice = document.createElement('button');
-      practice.type = 'button';
-      practice.className = 'btn btn-primary learn-practice';
-      practice.textContent = `练一练：${topic.label}`;
-      practice.addEventListener('click', () => {
+      practiceButton = document.createElement('button');
+      practiceButton.type = 'button';
+      practiceButton.className = 'btn btn-primary learn-practice';
+      practiceButton.addEventListener('click', () => {
         dialog.close();
         onPractice(topic.id);
       });
-      el.body.appendChild(practice);
+      el.body.appendChild(practiceButton);
     }
+    updatePractice(topic);
 
     el.body.scrollTop = 0;
   }
@@ -82,5 +120,13 @@ export function mountLearnPanel({ onPractice } = {}) {
   el.next.addEventListener('click', () => step(1));
   el.close.addEventListener('click', () => dialog.close());
 
-  return { open };
+  paintCard();
+
+  return {
+    open,
+    refresh() {
+      paintCard();
+      if (dialog.open) updatePractice(LEARN_TOPICS[current]);
+    },
+  };
 }

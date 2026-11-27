@@ -69,7 +69,7 @@ function findAll(node, predicate) {
 }
 
 
-function mount({ canManage = false, problems = BASIC_PROBLEMS } = {}) {
+function mount({ canManage = false, problems = BASIC_PROBLEMS, onProgress = () => {} } = {}) {
   const container = fakeNode('div');
   const positions = [];
   vi.stubGlobal('document', {
@@ -79,6 +79,7 @@ function mount({ canManage = false, problems = BASIC_PROBLEMS } = {}) {
   const panel = mountTacticsPanel(container, {
     canManage,
     problems,
+    onProgress,
     setFen: (fen) => positions.push(fen),
     getFen: () => START_FEN,
   });
@@ -157,6 +158,26 @@ describe('逐手判题', () => {
     expect(panel.getState()).toMatchObject({ status: 'incorrect', currentMoveIndex: 0 });
     expect(panel.checkMove('e2e4')).toBe(true);
     expect(panel.getState().status).toBe('correct');
+  });
+
+  it('进度回调只在答错或整题解答完成后触发', () => {
+    const problem = {
+      id: 'multi-progress',
+      title: '连续走子',
+      fen: START_FEN,
+      solution: ['e2e4', 'e7e5', 'g1f3'],
+      difficulty: 1000,
+    };
+    const onProgress = vi.fn();
+    const { panel } = mount({ problems: [problem], onProgress });
+    expect(panel.checkMove('e2e4')).toBe(true);
+    expect(onProgress).not.toHaveBeenCalled();
+    expect(panel.checkMove('d2d4')).toBe(false);
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(panel.checkMove('e7e5')).toBe(true);
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(panel.checkMove('g1f3')).toBe(true);
+    expect(onProgress).toHaveBeenCalledTimes(2);
   });
 
   it('多手解法由做题者走完双方回合，最后才记为解决', () => {
