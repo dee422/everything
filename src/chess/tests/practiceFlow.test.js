@@ -327,7 +327,7 @@ describe('公开入口与会话隔离', () => {
     const harness = makeHarness();
     expect(harness.openPractice('pieces')).toBe(true);
     expect(harness.isOpen()).toBe(true);
-    expect(harness.selected()).toBe('basic-pieces-knight');
+    expect(harness.selected()).toBe('basic-pieces-pawn');
     expect(harness.reviewIndex()).toBe(null);
     expect(harness.clearReviews()).toBe(1);
     expect(harness.mounted[0]).toMatchObject({ canManage: false, problems: BASIC_PROBLEMS });
@@ -380,7 +380,7 @@ describe('公开入口与会话隔离', () => {
     harness.closeTactics();
     harness.openTactics();
     expect(harness.isOpen()).toBe(true);
-    expect(harness.selected()).toBe('basic-pieces-knight');
+    expect(harness.selected()).toBe('basic-pieces-pawn');
     expect(harness.loads()).toBe(loads + 1);
   });
 });
