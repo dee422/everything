@@ -73,6 +73,7 @@ export function mountTacticsPanel(container, {
     filter: {
       favoritesOnly: false,
       unsolvedOnly: false,
+      mistakesOnly: false,
       searchText: '',
       difficultyMode: 'all',
     },
@@ -297,7 +298,11 @@ function buildListSection(panel) {
     panel.filter.unsolvedOnly = checked;
     panel.refreshList();
   });
-  filterRow.append(favoritesFilter, unsolvedFilter);
+  const mistakesFilter = filterCheckbox('错题本', panel.filter.mistakesOnly, (checked) => {
+    panel.filter.mistakesOnly = checked;
+    panel.refreshList();
+  });
+  filterRow.append(favoritesFilter, unsolvedFilter, mistakesFilter);
 
   const selectRow = document.createElement('label');
   selectRow.className = 'tactics-select-row';
@@ -339,11 +344,13 @@ function buildListSection(panel) {
   panel.resetFilters = () => {
     panel.filter.favoritesOnly = false;
     panel.filter.unsolvedOnly = false;
+    panel.filter.mistakesOnly = false;
     panel.filter.searchText = '';
     panel.filter.difficultyMode = 'all';
     search.value = '';
     favoritesFilter.firstChild.checked = false;
     unsolvedFilter.firstChild.checked = false;
+    mistakesFilter.firstChild.checked = false;
     select.value = 'all';
   };
 
@@ -360,7 +367,9 @@ function buildListSection(panel) {
       return;
     }
     if (filtered.length === 0) {
-      list.appendChild(emptyNote('没有符合筛选的题目。'));
+      list.appendChild(emptyNote(panel.filter.mistakesOnly
+        ? '错题本是空的——答错且还没解决的题会出现在这里。'
+        : '没有符合筛选的题目。'));
       return;
     }
     for (const item of filtered) {
@@ -475,6 +484,11 @@ function filteredProblems(panel) {
         if (progress && progress.solved) return false;
       }
 
+      if (panel.filter.mistakesOnly) {
+        const progress = getProgress(problem.id);
+        if (!progress || progress.attempts < 1 || progress.solved) return false;
+      }
+
       const difficulty = problem.difficulty || 1000;
       if (panel.filter.difficultyMode === 'auto') {
         if (difficulty < range.min || difficulty > range.max) return false;
@@ -551,8 +565,12 @@ function buildStoreSection(panel) {
 
   panel.refreshStore = () => {
     const solved = panel.problems.filter((problem) => getProgress(problem.id)?.solved).length;
+    const mistakes = panel.problems.filter((problem) => {
+      const progress = getProgress(problem.id);
+      return progress && progress.attempts > 0 && !progress.solved;
+    }).length;
     statsLine.textContent =
-      `当前 ${panel.problems.length} 题 · 已解决 ${solved} · ` +
+      `当前 ${panel.problems.length} 题 · 已解决 ${solved} · 错题 ${mistakes} · ` +
       `收藏 ${panel.problems.filter((problem) => isFavorite(problem.id)).length} · ` +
       `评级 ${getUserRating()}`;
 

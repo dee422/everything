@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BASIC_PROBLEMS } from '../src/game/basicProblems.js';
-import { getProgress, saveProblemSet } from '../src/game/tacticsStore.js';
+import { getProgress, recordAttempt, saveProblemSet } from '../src/game/tacticsStore.js';
 import { mountTacticsPanel } from '../src/ui/tacticsPanel.js';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -68,6 +68,18 @@ function findAll(node, predicate) {
     .filter(predicate);
 }
 
+function visibleProblemIds(container) {
+  return findAll(container, (node) => Boolean(node.dataset?.problemId))
+    .map((node) => node.dataset.problemId);
+}
+
+function enableMistakesFilter(container) {
+  const boxes = findAll(container, (node) => node.name === 'input' && node.type === 'checkbox');
+  const mistakes = boxes[2];
+  mistakes.checked = true;
+  mistakes.emit('change');
+  return mistakes;
+}
 
 function mount({ canManage = false, problems = BASIC_PROBLEMS, onProgress = () => {} } = {}) {
   const container = fakeNode('div');
@@ -148,6 +160,45 @@ describe('教程推荐选题', () => {
     expect(panel.selectProblemById('basic-rules-castle')).toBe(true);
     expect(panel.getState().currentProblemId).toBe('basic-rules-castle');
     expect(panel.getState().problems.some((problem) => problem.id === 'custom')).toBe(true);
+  });
+});
+
+describe('错题本', () => {
+  it('只显示答错且尚未解决的题，并更新错题计数', () => {
+    const wrong = BASIC_PROBLEMS[0];
+    const solved = BASIC_PROBLEMS[1];
+    recordAttempt(wrong.id, false);
+    recordAttempt(solved.id, true);
+    const { container } = mount();
+
+    enableMistakesFilter(container);
+
+    expect(visibleProblemIds(container)).toEqual([wrong.id]);
+    const stats = findAll(container, (node) => node.className === 'tactics-stats-line')[0];
+    expect(stats.textContent).toContain('错题 1');
+  });
+
+  it('错题解决后立即移出错题本，空列表给出说明', () => {
+    const wrong = BASIC_PROBLEMS[0];
+    recordAttempt(wrong.id, false);
+    const { container, panel } = mount();
+    enableMistakesFilter(container);
+
+    expect(panel.checkMove('e2e4')).toBe(true);
+
+    expect(visibleProblemIds(container)).toEqual([]);
+    expect(getProgress(wrong.id)).toMatchObject({ attempts: 2, solved: true });
+    expect(findAll(container, (node) =>
+      node.textContent === '错题本是空的——答错且还没解决的题会出现在这里。')).toHaveLength(1);
+  });
+
+  it('教程推荐选题会清除错题本筛选', () => {
+    const { container, panel } = mount();
+    const mistakes = enableMistakesFilter(container);
+
+    expect(panel.selectProblemById('basic-pieces-knight')).toBe(true);
+    expect(mistakes.checked).toBe(false);
+    expect(visibleProblemIds(container)).toHaveLength(BASIC_PROBLEMS.length);
   });
 });
 
